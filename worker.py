@@ -104,6 +104,10 @@ def reader() -> None:
             params = msg.get("params") or {}
             params = params.get("params", params) if isinstance(params, dict) else {}
             threading.Thread(target=lambda: save_layout(params), daemon=True).start()
+        if tail == "power_switch":
+            params = msg.get("params") or {}
+            params = params.get("params", params) if isinstance(params, dict) else {}
+            threading.Thread(target=lambda: power_switch(str(params.get("action") or "")), daemon=True).start()
         if tail == "wake":
             params = msg.get("params") or {}
             params = params.get("params", params) if isinstance(params, dict) else {}
@@ -246,6 +250,39 @@ def wake_host(host: str) -> None:
     _wake.set()
 
 
+_power_note = {"text": ""}
+
+
+def fetch_power(command: str) -> dict[str, Any] | None:
+    """Optional smart power strip status: a command printing JSON (switch, power_w, today_wh, month_wh, history)."""
+    if not command.strip():
+        return None
+    try:
+        done = subprocess.run([os.path.expanduser(a) for a in shlex.split(command)], capture_output=True, text=True,
+                              timeout=40)
+        data = json.loads(done.stdout) if done.stdout.strip() else {"error": (done.stderr or "no output").strip()[-200:]}
+    except Exception as exc:  # noqa: BLE001
+        data = {"error": str(exc)[:200]}
+    data["note"] = _power_note["text"]
+    return data
+
+
+def power_switch(action: str) -> None:
+    template = str(setting("power_switch_command", "") or "")
+    if action not in ("on", "off") or "{action}" not in template:
+        log(f"power switch refused: {action!r}")
+        return
+    _power_note["text"] = ("켜는 중… " if action == "on" else "끄는 중… ") + datetime.now(timezone.utc).astimezone().strftime("%H:%M:%S")
+    _wake.set()
+    try:
+        args = [os.path.expanduser(a).replace("{action}", action) for a in shlex.split(template)]
+        done = subprocess.run(args, capture_output=True, text=True, timeout=60)
+        _power_note["text"] = ((done.stdout or done.stderr).strip().splitlines() or [""])[-1][:120]
+    except Exception as exc:  # noqa: BLE001
+        _power_note["text"] = f"실패: {exc}"[:120]
+    _wake.set()
+
+
 def fetch_vpn(command: str) -> dict[str, Any] | None:
     """Optional VPN status from a command printing `state: X (name)`, `started:`, `expires:`, `route a -> if` lines."""
     if not command.strip():
@@ -336,7 +373,7 @@ HOME_PANE = {"title": "대시보드", "icon": "layout-dashboard", "blocks": [DAS
 
 
 def build(data: dict[str, Any], usage: dict[str, Any] | None = None,
-          vpn: dict[str, Any] | None = None) -> dict[str, dict[str, Any]]:
+          vpn: dict[str, Any] | None = None, power: dict[str, Any] | None = None) -> dict[str, dict[str, Any]]:
     """Two home panes and two pages: server health, and subscription usage."""
     hosts = [summarize(h) for h in data.get("hosts") or []]
     subs = subscriptions(data.get("hosts") or [])
@@ -382,6 +419,7 @@ def build(data: dict[str, Any], usage: dict[str, Any] | None = None,
     return {
         "servers": servers, "subscriptions": subscriptions_pane,
         "monitor": {"observedAt": data.get("observedAt"), "updated": now, "hosts": hosts, "vpn": vpn,
+                    "power": power,
                     "wakeable": [h for h in setting("wake_hosts", []) or [] if isinstance(h, str)],
                     "wakeNotes": dict(_wake_notes)},
         "subscriptions_page": {"updated": now, "subscriptions": subs, "usage": (usage or {}).get("hosts")},
@@ -438,7 +476,8 @@ def refresh() -> int:
         _known_hosts[:] = [{"id": h.get("id"), "name": h.get("name") or h.get("id")} for h in data.get("hosts") or []
                            if h.get("id")]
         out = build(data, fetch_usage(str(setting("usage_command", "") or "")),
-                    fetch_vpn(str(setting("vpn_command", "") or "")))
+                    fetch_vpn(str(setting("vpn_command", "") or "")),
+                    fetch_power(str(setting("power_command", "") or "")))
     except Exception as exc:  # noqa: BLE001
         failed = {"kind": "callout", "tone": "danger", "title": "수집기에 연결할 수 없습니다", "detail": f"{url}: {exc}"}
         out = {"servers": {"title": "서버 상태", "icon": "activity", "blocks": [failed],

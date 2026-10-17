@@ -53,6 +53,7 @@ aoe serve --restart
 | `usage_command` | (비움) | 서버별 구독 사용량 JSON을 출력하는 명령(선택). `{"hosts": [{"host", "providers": [{"tool", "plan", "account", "status", "windows": [{"label", "used"}]}]}]}`. 넣으면 서버마다 로그인된 계정과 사용량을 보여줍니다 |
 | `vpn_command` | (비움) | VPN 상태를 출력하는 명령(선택). `state: CONNECTED (이름)`, `started:`, `expires:`, `route IP -> 인터페이스` 줄을 읽어 대시보드 서버 상태 맨 위에 보여줍니다 |
 | `wake_hosts` / `wake_command` | (비움) | 꺼진 서버 칸에 "켜기 (WOL)" 버튼을 보일 서버 id 목록과, `{host}` 자리에 id가 들어가는 켜기 명령(예: Wake-on-LAN 도구). 목록에 없는 서버는 거부합니다 |
+| `power_command` / `power_switch_command` | (비움) | 스마트 멀티탭 상태 JSON(switch, power_w, today_wh, month_wh, history)을 출력하는 명령과, `{action}`에 on/off가 들어가는 켜기·끄기 명령. 대시보드에 전력·사용량·두 번 눌러 켜고 끄는 버튼이 생깁니다 |
 | `refresh_secs` | 60 | 갱신 주기(초) |
 
 ## 테스트
