@@ -1,7 +1,7 @@
 # Home Monitor: server health and subscription usage for the Home AI fleet, in the AoE dashboard.
 id = "dev.hyunwook.home-monitor"
 name = "Home Monitor"
-version = "0.4.0"
+version = "0.5.0"
 api_version = 16
 aoe_version = ">=1.20.0, <2.0.0"
 description = "홈서버 전체의 CPU·메모리·디스크 상태와 구독 사용량을 대시보드 패널과 페이지로 보여줍니다."
@@ -42,6 +42,13 @@ id = "servers"
 [[ui]]
 slot = "home-pane"
 id = "subscriptions"
+
+[[ui]]
+slot = "page"
+id = "dashboard"
+title = "대시보드"
+icon = "layout-dashboard"
+entry = "dashboard.html"
 
 [[ui]]
 slot = "page"

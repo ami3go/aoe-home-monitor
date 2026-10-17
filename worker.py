@@ -247,6 +247,9 @@ def host_block(s: dict[str, Any]) -> dict[str, Any]:
             "value_tone": head_tone, "children": children}
 
 
+DASHBOARD_LINK = {"kind": "action", "label": "전체 대시보드 열기", "href": "/plugins/dev.hyunwook.home-monitor/dashboard", "icon": "layout-dashboard", "variant": "primary"}
+
+
 def build(data: dict[str, Any], usage: dict[str, Any] | None = None) -> dict[str, dict[str, Any]]:
     """Two home panes and two pages: server health, and subscription usage."""
     hosts = [summarize(h) for h in data.get("hosts") or []]
@@ -257,7 +260,7 @@ def build(data: dict[str, Any], usage: dict[str, Any] | None = None) -> dict[str
         if (d["pct"] or 0) >= DISK_WARN] + [
         f"{h['name']} 메모리 {h['mem']:.0f}%" for h in hosts if h["up"] and (h["mem"] or 0) >= DANGER]
     now = datetime.now(timezone.utc).astimezone().strftime("%H:%M:%S")
-    blocks: list[dict[str, Any]] = []
+    blocks: list[dict[str, Any]] = [DASHBOARD_LINK]
     if problems:
         blocks.append({"kind": "callout", "tone": "danger" if up < len(hosts) else "warn",
                        "title": "확인할 서버가 있습니다", "detail": " · ".join(problems)})
@@ -267,13 +270,13 @@ def build(data: dict[str, Any], usage: dict[str, Any] | None = None) -> dict[str
                "footer": {"text": f"갱신 {now}", "value": f"서버 {up}/{len(hosts)}",
                           "tone": "success" if up == len(hosts) else "danger", "icon": "refresh-cw"}}
     if usage:
-        sub_blocks = usage_blocks(usage)
+        sub_blocks = [DASHBOARD_LINK] + usage_blocks(usage)
         accounts = sum(len(h.get("providers") or []) for h in usage.get("hosts") or [])
         hot = [f"{h.get('host')} {TOOL_NAME.get(p.get('tool'), p.get('tool'))} {w['used']:.0f}%"
                for h in usage.get("hosts") or [] for p in h.get("providers") or [] for w in p.get("windows") or []
                if isinstance(w.get("used"), (int, float)) and w["used"] >= 80]
         if hot:
-            sub_blocks.insert(0, {"kind": "callout", "tone": "warn", "title": "한도에 가까운 구독",
+            sub_blocks.insert(1, {"kind": "callout", "tone": "warn", "title": "한도에 가까운 구독",
                                   "detail": " · ".join(hot)})
         footer_value = f"계정 {accounts}개"
     else:

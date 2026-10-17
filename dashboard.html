@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>대시보드</title>
+<style>
+  :root { --bg: #0f1115; --fg: #e6e6e6; --muted: #9aa0a6; --line: #2a2f37; --card: #161a20;
+          --ok: #3fb950; --warn: #d29922; --bad: #f85149; --accent: #58a6ff; --accent2: #d2a8ff; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 16px; background: var(--background, var(--bg)); color: var(--foreground, var(--fg));
+         font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  h2 { font-size: 15px; margin: 24px 0 4px; }
+  .sub { color: var(--muted); font-size: 12px; margin-bottom: 16px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px; }
+  .card.down { border-color: var(--bad); }
+  .head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; }
+  .name { font-weight: 600; }
+  .meta { color: var(--muted); font-size: 12px; }
+  .nums { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin-bottom: 8px; }
+  .nums div { font-size: 12px; color: var(--muted); }
+  .nums b { display: block; font-size: 18px; color: var(--fg); font-variant-numeric: tabular-nums; }
+  .ok { color: var(--ok) !important; } .warn { color: var(--warn) !important; } .bad { color: var(--bad) !important; }
+  svg { width: 100%; height: 34px; display: block; }
+  .label { font-size: 11px; color: var(--muted); margin: 2px 0 6px; display: flex; justify-content: space-between; }
+  .section { font-size: 12px; color: var(--muted); margin: 10px 0 4px; border-top: 1px solid var(--line); padding-top: 8px; }
+  .disk { margin: 6px 0; font-size: 12px; }
+  .disk .row { display: flex; justify-content: space-between; gap: 8px; }
+  .disk .mount { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .bar { height: 6px; background: var(--line); border-radius: 3px; overflow: hidden; margin-top: 3px; }
+  .bar span { display: block; height: 100%; background: var(--ok); }
+  .bar span.warn { background: var(--warn); } .bar span.bad { background: var(--bad); }
+  table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); font-size: 13px; }
+  th { color: var(--muted); font-weight: 500; }
+</style>
+</head>
+<body>
+<style>
+  html, body { height: auto; }
+  .bar-top { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 12px; }
+  .bar-top .grow { flex: 1; }
+  .chip { background: var(--card); color: var(--fg); border: 1px solid var(--line); border-radius: 6px; padding: 3px 9px;
+          font: inherit; font-size: 12px; cursor: pointer; }
+  .chip.on { border-color: var(--accent); color: var(--accent); }
+  .board { display: grid; gap: 12px; align-items: start; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); }
+  .board.cols-1 { grid-template-columns: 1fr; }
+  .board.cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .board.cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  @media (max-width: 820px) { .board.cols-2, .board.cols-3 { grid-template-columns: 1fr; } }
+  .panel { background: var(--card); border: 1px solid var(--line); border-radius: 10px; display: flex; flex-direction: column;
+           max-height: calc(100vh - 90px); min-height: 160px; }
+  .panel.fit { max-height: none; }
+  .panel header { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; border-bottom: 1px solid var(--line); gap: 8px; }
+  .panel header b { font-size: 14px; }
+  .panel .body { overflow: auto; padding: 8px 12px 12px; }
+  .host { margin: 8px 0 12px; }
+  .host h3 { font-size: 12px; letter-spacing: .04em; color: var(--muted); margin: 0 0 4px; display: flex; justify-content: space-between; text-transform: uppercase; }
+  .row { display: flex; gap: 8px; align-items: baseline; padding: 4px 6px; border-radius: 6px; font-size: 13px; }
+  .row.link { cursor: pointer; }
+  .row.link:hover { background: rgba(127,127,127,.12); }
+  .row .tool { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--muted); font-size: 11px; min-width: 76px; }
+  .row .title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .row .st { font-size: 12px; white-space: nowrap; }
+  .tiles { display: grid; gap: 8px; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); }
+  .tile { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+  .tile.down { border-color: var(--bad); }
+  .tile .t { display: flex; justify-content: space-between; font-weight: 600; font-size: 13px; margin-bottom: 4px; }
+  .kv { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); }
+  .kv b { color: var(--fg); font-weight: 600; }
+  .mini { height: 5px; background: var(--line); border-radius: 3px; overflow: hidden; margin: 2px 0 5px; }
+  .mini span { display: block; height: 100%; background: var(--ok); }
+  .mini span.warn { background: var(--warn); } .mini span.bad { background: var(--bad); }
+  .sub-row { display: grid; grid-template-columns: 90px 1fr auto; gap: 8px; font-size: 12px; padding: 3px 0; border-bottom: 1px solid var(--line); }
+  .sub-row:last-child { border-bottom: 0; }
+  .muted { color: var(--muted); }
+</style>
+<div class="bar-top">
+  <h1 style="margin:0">대시보드</h1><span class="sub" id="sub" style="margin:0">불러오는 중…</span><span class="grow"></span>
+  <span class="muted" style="font-size:12px">보이기</span><span id="toggles"></span>
+  <span class="muted" style="font-size:12px">열</span><span id="cols"></span>
+</div>
+<div class="board" id="board"></div>
+<script>
+const PANELS = [["sessions", "세션"], ["servers", "서버 상태"], ["subs", "구독 상태"]];
+const COLS = [["auto", "자동"], ["1", "1"], ["2", "2"], ["3", "3"]];
+const STATUS_TONE = { "실행 중": "", "입력 대기": "warn", "오류": "bad", "유휴": "muted" };
+const NAMES = { codex: "Codex", claude: "Claude", grok: "Grok", antigravity: "Antigravity", kimi: "Kimi", opencode: "OpenCode" };
+const prefs = (() => { try { return JSON.parse(localStorage.getItem("aoe-home-dashboard") || "{}"); } catch { return {}; } })();
+prefs.hidden = prefs.hidden || []; prefs.cols = prefs.cols || "auto";
+const save = () => { try { localStorage.setItem("aoe-home-dashboard", JSON.stringify(prefs)); } catch {} };
+let last = [];
+function bytes(v, rate) {
+  if (v == null) return "-";
+  const u = ["B", "KB", "MB", "GB", "TB", "PB"]; let i = 0;
+  while (v >= 1000 && i < u.length - 1) { v /= 1000; i++; }
+  return `${v >= 100 || i === 0 ? Math.round(v) : v.toFixed(1)} ${u[i]}${rate ? "/s" : ""}`;
+}
+function chips() {
+  const t = document.getElementById("toggles"); t.replaceChildren();
+  for (const [id, label] of PANELS) {
+    const b = el("button", prefs.hidden.includes(id) ? "chip" : "chip on", label);
+    b.onclick = () => { prefs.hidden = prefs.hidden.includes(id) ? prefs.hidden.filter((x) => x !== id) : [...prefs.hidden, id]; save(); render(last); };
+    t.append(b, document.createTextNode(" "));
+  }
+  const c = document.getElementById("cols"); c.replaceChildren();
+  for (const [v, label] of COLS) {
+    const b = el("button", prefs.cols === v ? "chip on" : "chip", label);
+    b.onclick = () => { prefs.cols = v; save(); render(last); };
+    c.append(b, document.createTextNode(" "));
+  }
+}
+function panel(id, title, right) {
+  const p = el("section", "panel"); p.dataset.id = id;
+  const h = el("header"); h.append(el("b", null, title), el("span", "muted", right || ""));
+  const body = el("div", "body"); p.append(h, body);
+  return [p, body];
+}
+function sessionsPanel(entries) {
+  const fleet = entries.find((e) => e.plugin_id === "dev.hyunwook.fleet" && e.slot === "home-pane");
+  const sections = (fleet?.payload?.blocks || []).filter((b) => b.kind === "section");
+  const total = sections.reduce((n, s) => n + (s.children || []).filter((c) => c.kind === "row").length, 0);
+  const [p, body] = panel("sessions", "세션", fleet ? `${fleet.payload.footer?.value || ""} · 세션 ${total}개` : "Fleet 플러그인 없음");
+  const alert = (fleet?.payload?.blocks || []).find((b) => b.kind === "callout");
+  if (alert) body.append(el("div", "row warn", `${alert.title} — ${alert.detail || ""}`));
+  for (const s of sections) {
+    const box = el("div", "host"); const h = el("h3");
+    h.append(el("span", null, s.title), el("span", s.value_tone === "danger" ? "bad" : null, s.value || (s.badges || []).map((b) => b.text).join(" · ")));
+    box.append(h);
+    for (const c of s.children || []) {
+      if (c.kind === "note") { box.append(el("div", "row muted", c.text)); continue; }
+      const r = el("div", c.href ? "row link" : "row");
+      r.append(el("span", "tool", c.prefix || ""), el("span", "title", c.label || ""), el("span", "st " + (STATUS_TONE[c.value] || ""), c.value || ""));
+      const m = /^\/session\/([^/?#]+)/.exec(c.href || "");
+      if (m) r.onclick = () => bridgeCall("openSession", { id: m[1] }).catch(() => {});
+      if (c.sublabel) r.title = c.sublabel;
+      box.append(r);
+    }
+    body.append(box);
+  }
+  if (!sections.length) body.append(el("div", "muted", "세션 정보가 없습니다."));
+  return p;
+}
+function serversPanel(entries) {
+  const mon = entries.find((e) => e.plugin_id === "dev.hyunwook.home-monitor" && e.slot === "page" && e.id === "monitor")?.payload;
+  const hosts = mon?.hosts || [];
+  const up = hosts.filter((h) => h.up).length;
+  const [p, body] = panel("servers", "서버 상태", mon ? `서버 ${up}/${hosts.length} · ${mon.updated || ""}` : "");
+  const tiles = el("div", "tiles");
+  for (const h of hosts) {
+    const t = el("div", h.up ? "tile" : "tile down");
+    const head = el("div", "t"); head.append(el("span", null, h.name), el("span", h.up ? "muted" : "bad", h.up ? `${h.cores || "?"}코어` : "연결 끊김"));
+    t.append(head);
+    if (h.up) {
+      for (const [label, v] of [["CPU", h.cpu], ["메모리", h.mem]]) {
+        const kv = el("div", "kv"); kv.append(el("span", null, label), el("b", level(v), pct(v)));
+        const bar = el("div", "mini"); const f = el("span", level(v)); f.style.width = `${Math.min(100, v || 0)}%`; bar.append(f);
+        t.append(kv, bar);
+      }
+      const net = el("div", "kv"); net.append(el("span", null, "네트워크"), el("b", null, `↓${bytes(h.rx, true)} ↑${bytes(h.tx, true)}`)); t.append(net);
+      for (const d of h.disks || []) {
+        const kv = el("div", "kv"); kv.append(el("span", null, d.mount), el("b", level(d.pct, 85, 95), pct(d.pct)));
+        const bar = el("div", "mini"); const f = el("span", level(d.pct, 85, 95)); f.style.width = `${Math.min(100, d.pct || 0)}%`; bar.append(f);
+        t.append(kv, bar);
+      }
+    } else t.append(el("div", "muted", h.error || ""));
+    tiles.append(t);
+  }
+  body.append(tiles);
+  return p;
+}
+function subsPanel(entries) {
+  const s = entries.find((e) => e.plugin_id === "dev.hyunwook.home-monitor" && e.slot === "page" && e.id === "subscriptions")?.payload;
+  const hosts = s?.usage || [];
+  const [p, body] = panel("subs", "구독 상태", s ? `계정 ${hosts.reduce((n, h) => n + (h.providers || []).length, 0)}개 · ${s.updated || ""}` : "");
+  for (const host of hosts) {
+    const box = el("div", "host"); box.append(el("h3", null, host.host));
+    for (const pr of host.providers || []) {
+      const w = (pr.windows || []).filter((x) => typeof x.used === "number");
+      const top = w.length ? Math.max(...w.map((x) => x.used)) : null;
+      const r = el("div", "sub-row");
+      r.append(el("span", null, NAMES[pr.tool] || pr.tool), el("span", "muted", `${pr.plan || "-"} · ${pr.account || ""}`),
+        el("span", top == null ? "muted" : level(top, 70, 90), top == null ? "미확인" : `${Math.round(top)}%`));
+      r.title = w.map((x) => `${x.label} ${Math.round(x.used)}%`).join(" · ") || pr.reason || "";
+      box.append(r);
+    }
+    body.append(box);
+  }
+  if (!hosts.length) body.append(el("div", "muted", "서버별 구독 정보가 없습니다 (usage_command 설정 필요)."));
+  return p;
+}
+function render(entries) {
+  last = entries || [];
+  chips();
+  const board = document.getElementById("board");
+  board.className = "board" + (prefs.cols === "auto" ? "" : ` cols-${prefs.cols}`);
+  board.replaceChildren();
+  const build = { sessions: sessionsPanel, servers: serversPanel, subs: subsPanel };
+  for (const [id] of PANELS) if (!prefs.hidden.includes(id)) board.append(build[id](last));
+  document.getElementById("sub").textContent = `15초마다 갱신 · 창 너비에 맞춰 배치 · 패널 안에서 스크롤`;
+}
+</script>
+<script>
+(() => {
+  let next = 0;
+  const pending = new Map();
+  const { port1, port2 } = new MessageChannel();
+  port1.onmessage = ({ data: m }) => {
+    if (m.event === "theme") {
+      for (const [k, v] of Object.entries(m.data.cssVars || {})) document.documentElement.style.setProperty(k, String(v));
+      return;
+    }
+    if (m.event) return;
+    const done = pending.get(m.id); pending.delete(m.id);
+    if (done) done(m);
+  };
+  const request = (msg, post) => {
+    const id = ++next;
+    const reply = new Promise((resolve, reject) => pending.set(id, (m) => (m.error ? reject(m.error) : resolve(m.result))));
+    post({ aoeBridge: 1, id, ...msg });
+    return reply;
+  };
+  const call = (method, params) => request({ method, params }, (m) => port1.postMessage(m));
+  window.bridgeCall = call;
+  window.el = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; };
+  window.level = (v, warn = 80, bad = 92) => v == null ? "" : v >= bad ? "bad" : v >= warn ? "warn" : "ok";
+  window.pct = (v) => v == null ? "-" : `${Math.round(v)}%`;
+  async function load() {
+    try {
+      const body = await call("plugins.uiState");
+      const entries = Array.isArray(body) ? body : body.entries || [];
+      render(entries);
+    } catch (err) {
+      document.getElementById("sub").textContent = `불러오지 못했습니다: ${err.message || err.code || err}`;
+    }
+  }
+  request({ method: "ready", params: { nonce: location.hash.slice(1) } }, (m) => parent.postMessage(m, "*", [port2])).then(load);
+  setInterval(load, 15000);
+})();
+</script>
+</body>
+</html>

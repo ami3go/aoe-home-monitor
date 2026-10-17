@@ -36,7 +36,8 @@ class WorkerTests(unittest.TestCase):
         out = worker.build(DATA)
         servers, subs = out["servers"], out["subscriptions"]
         self.assertEqual(servers["footer"]["value"], "서버 2/3")
-        callout = servers["blocks"][0]
+        self.assertEqual(servers["blocks"][0]["href"], "/plugins/dev.hyunwook.home-monitor/dashboard")
+        callout = servers["blocks"][1]
         self.assertIn("gone", callout["detail"])
         self.assertIn("main ? 90%", callout["detail"])  # per-mount disk warning
         main = [b for b in servers["blocks"] if b["kind"] == "section"][0]
