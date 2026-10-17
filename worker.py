@@ -220,7 +220,7 @@ def fetch_usage(command: str) -> dict[str, Any] | None:
     if not command.strip():
         return None
     try:
-        done = subprocess.run([os.path.expanduser(a) for a in shlex.split(command)], capture_output=True, text=True,
+        done = subprocess.run([os.path.expanduser(a) for a in shlex.split(command)], stdin=subprocess.DEVNULL, capture_output=True, text=True,
                               timeout=120)
         return json.loads(done.stdout)
     except Exception as exc:  # noqa: BLE001
@@ -242,7 +242,7 @@ def wake_host(host: str) -> None:
     _wake.set()
     try:
         args = [os.path.expanduser(a).replace("{host}", host) for a in shlex.split(template)]
-        done = subprocess.run(args, capture_output=True, text=True, timeout=300)
+        done = subprocess.run(args, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=300)
         _wake_notes[host] = (done.stdout or done.stderr).strip().splitlines()[-1][:120] if (done.stdout or done.stderr) \
             else f"종료 코드 {done.returncode}"
     except Exception as exc:  # noqa: BLE001
@@ -258,7 +258,7 @@ def fetch_power(command: str) -> dict[str, Any] | None:
     if not command.strip():
         return None
     try:
-        done = subprocess.run([os.path.expanduser(a) for a in shlex.split(command)], capture_output=True, text=True,
+        done = subprocess.run([os.path.expanduser(a) for a in shlex.split(command)], stdin=subprocess.DEVNULL, capture_output=True, text=True,
                               timeout=40)
         data = json.loads(done.stdout) if done.stdout.strip() else {"error": (done.stderr or "no output").strip()[-200:]}
     except Exception as exc:  # noqa: BLE001
@@ -276,7 +276,7 @@ def power_switch(action: str) -> None:
     _wake.set()
     try:
         args = [os.path.expanduser(a).replace("{action}", action) for a in shlex.split(template)]
-        done = subprocess.run(args, capture_output=True, text=True, timeout=60)
+        done = subprocess.run(args, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=60)
         _power_note["text"] = ((done.stdout or done.stderr).strip().splitlines() or [""])[-1][:120]
     except Exception as exc:  # noqa: BLE001
         _power_note["text"] = f"실패: {exc}"[:120]
@@ -288,7 +288,7 @@ def fetch_vpn(command: str) -> dict[str, Any] | None:
     if not command.strip():
         return None
     try:
-        done = subprocess.run([os.path.expanduser(a) for a in shlex.split(command)], capture_output=True, text=True,
+        done = subprocess.run([os.path.expanduser(a) for a in shlex.split(command)], stdin=subprocess.DEVNULL, capture_output=True, text=True,
                               timeout=30)
     except Exception as exc:  # noqa: BLE001
         return {"state": "UNKNOWN", "error": str(exc)[:200]}

@@ -214,14 +214,26 @@ function serversPanel(entries) {
         svg.append(line); box.append(svg);
       }
       const row = el("div", "kv");
-      const btn = el("button", "chip on", on ? "끄기" : "켜기");
-      let armed = null;
+      // The first press arms for 5 s; the state lives outside the panel so a refresh in between keeps it.
+      const action = on ? "off" : "on";
+      const armed = window.powerArm && window.powerArm.action === action && Date.now() < window.powerArm.until;
+      const sent = window.powerSent && Date.now() < window.powerSent.until;
+      const btn = el("button", "chip on", sent ? "보내는 중…" : armed ? (on ? "한 번 더 누르면 끕니다" : "한 번 더 누르면 켭니다") : (on ? "끄기" : "켜기"));
+      btn.disabled = !!sent;
       btn.onclick = () => {
-        if (!armed) { btn.textContent = on ? "한 번 더 누르면 끕니다" : "한 번 더 누르면 켭니다"; armed = setTimeout(() => { armed = null; btn.textContent = on ? "끄기" : "켜기"; }, 5000); return; }
-        clearTimeout(armed); armed = null; btn.disabled = true; btn.textContent = "보내는 중…";
-        bridgeCall("action", { method: "power_switch", params: { action: on ? "off" : "on" } }).catch(() => {});
+        if (!(window.powerArm && window.powerArm.action === action && Date.now() < window.powerArm.until)) {
+          window.powerArm = { action, until: Date.now() + 5000 };
+          btn.textContent = on ? "한 번 더 누르면 끕니다" : "한 번 더 누르면 켭니다";
+          setTimeout(() => render(last), 5100);
+          return;
+        }
+        window.powerArm = null; window.powerSent = { until: Date.now() + 20000 };
+        btn.disabled = true; btn.textContent = "보내는 중…";
+        bridgeCall("action", { method: "power_switch", params: { action } })
+          .then(() => setTimeout(reloadSoon, 4000))
+          .catch((e) => { window.powerSent = null; window.powerError = `보내지 못했습니다: ${e.message || e.code || e}`; render(last); });
       };
-      row.append(el("span", "amount", pw.note || (pw.counting_since ? `${pw.counting_since.slice(5, 16).replace("T", " ")}부터 집계` : "")), btn);
+      row.append(el("span", "amount", window.powerError || pw.note || (pw.counting_since ? `${pw.counting_since.slice(5, 16).replace("T", " ")}부터 집계` : "")), btn);
       box.append(row);
     }
     body.append(box);
@@ -335,6 +347,7 @@ function render(entries) {
   };
   const call = (method, params) => request({ method, params }, (m) => port1.postMessage(m));
   window.bridgeCall = call;
+  window.reloadSoon = () => load();
   window.el = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; };
   window.level = (v, warn = 80, bad = 92) => v == null ? "" : v >= bad ? "bad" : v >= warn ? "warn" : "ok";
   window.pct = (v) => v == null ? "-" : `${Math.round(v)}%`;
