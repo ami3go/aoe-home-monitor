@@ -14,6 +14,7 @@ import shlex
 import subprocess
 import sys
 import threading
+import time
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
@@ -336,6 +337,24 @@ def control(kind: str, params: dict[str, Any]) -> None:
         log(f"host power refused: {action!r}")
 
 
+_tools = {"data": None, "at": 0.0}
+
+
+def tools_loop() -> None:
+    """MCP servers and skills per host and CLI, refreshed in the background (the probe can take a minute)."""
+    while True:
+        command = str(setting("tools_command", "") or "")
+        if command.strip():
+            try:
+                done = subprocess.run([os.path.expanduser(a) for a in shlex.split(command)], stdin=subprocess.DEVNULL,
+                                      capture_output=True, text=True, timeout=300)
+                _tools["data"] = json.loads(done.stdout) if done.stdout.strip() else {"error": done.stderr[-200:]}
+            except Exception as exc:  # noqa: BLE001
+                _tools["data"] = {"error": str(exc)[:200]}
+            _tools["at"] = time.time()
+        time.sleep(600)
+
+
 def fetch_vpn(command: str) -> dict[str, Any] | None:
     """Optional VPN status from a command printing `state: X (name)`, `started:`, `expires:`, `route a -> if` lines."""
     if not command.strip():
@@ -477,6 +496,7 @@ def build(data: dict[str, Any], usage: dict[str, Any] | None = None,
                     "wakeNotes": {**dict(_wake_notes), **{k[5:]: v for k, v in _notes.items() if k.startswith("host:")}},
                     "vpnNote": _notes.get("vpn", "")},
         "subscriptions_page": {"updated": now, "subscriptions": subs, "usage": (usage or {}).get("hosts")},
+        "tools": _tools["data"],
     }
 
 
@@ -545,12 +565,15 @@ def refresh() -> int:
     call("ui.state.set", {"slot": "page", "id": "dashboard", "payload": {"layout": load_layout()}})
     call("ui.state.set", {"slot": "page", "id": "monitor", "payload": out["monitor"]})
     call("ui.state.set", {"slot": "page", "id": "subscriptions", "payload": out["subscriptions_page"]})
+    if out.get("tools") is not None:
+        call("ui.state.set", {"slot": "page", "id": "tools", "payload": out["tools"]})
     push_history()
     return max(15, int(setting("refresh_secs", 60)))
 
 
 def main() -> None:
     threading.Thread(target=reader, daemon=True).start()
+    threading.Thread(target=tools_loop, daemon=True).start()
     while True:
         try:
             delay = refresh()

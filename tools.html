@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>도구 (MCP·스킬)</title>
+<style>
+  :root { --bg: #0f1115; --fg: #e6e6e6; --muted: #9aa0a6; --line: #2a2f37; --card: #161a20;
+          --ok: #3fb950; --warn: #d29922; --bad: #f85149; --accent: #58a6ff; --accent2: #d2a8ff; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 16px; background: var(--background, var(--bg)); color: var(--foreground, var(--fg));
+         font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  h2 { font-size: 15px; margin: 24px 0 4px; }
+  .sub { color: var(--muted); font-size: 12px; margin-bottom: 16px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px; }
+  .card.down { border-color: var(--bad); }
+  .head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; }
+  .name { font-weight: 600; }
+  .meta { color: var(--muted); font-size: 12px; }
+  .nums { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin-bottom: 8px; }
+  .nums div { font-size: 12px; color: var(--muted); }
+  .nums b { display: block; font-size: 18px; color: var(--fg); font-variant-numeric: tabular-nums; }
+  .ok { color: var(--ok) !important; } .warn { color: var(--warn) !important; } .bad { color: var(--bad) !important; }
+  svg { width: 100%; height: 34px; display: block; }
+  .label { font-size: 11px; color: var(--muted); margin: 2px 0 6px; display: flex; justify-content: space-between; }
+  .section { font-size: 12px; color: var(--muted); margin: 10px 0 4px; border-top: 1px solid var(--line); padding-top: 8px; }
+  .disk { margin: 6px 0; font-size: 12px; }
+  .disk .row { display: flex; justify-content: space-between; gap: 8px; }
+  .disk .mount { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .bar { height: 6px; background: var(--line); border-radius: 3px; overflow: hidden; margin-top: 3px; }
+  .bar span { display: block; height: 100%; background: var(--ok); }
+  .bar span.warn { background: var(--warn); } .bar span.bad { background: var(--bad); }
+  table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); font-size: 13px; }
+  th { color: var(--muted); font-weight: 500; }
+</style>
+</head>
+<body>
+<h1>도구 (MCP·스킬)</h1>
+<div class="sub" id="sub">불러오는 중…</div>
+<h2>MCP 서버</h2>
+<table><thead id="mhead"></thead><tbody id="mrows"></tbody></table>
+<h2>스킬</h2>
+<table><thead id="shead"></thead><tbody id="srows"></tbody></table>
+<script>
+const PAGE_ID = "tools";
+const CLI_NAMES = { claude: "Claude", codex: "Codex", grok: "Grok", agy: "Antigravity" };
+function render(state) {
+  const mh = document.getElementById("mhead"), mr = document.getElementById("mrows");
+  const sh = document.getElementById("shead"), sr = document.getElementById("srows");
+  [mh, mr, sh, sr].forEach((x) => x.replaceChildren());
+  if (!state || state.error) { document.getElementById("sub").textContent = state?.error || "아직 목록이 없습니다."; return; }
+  const hosts = (state.hosts || []).filter((h) => Object.keys(h.clis || {}).length);
+  const cols = [];
+  for (const h of hosts) for (const cli of Object.keys(h.clis)) cols.push([h.host, cli]);
+  document.getElementById("sub").textContent = `서버 ${hosts.length}대 · CLI ${cols.length}개 · ${state.observed || ""} 기준 · 10분마다 갱신`;
+  const header = (tr) => { tr.append(el("th", null, "")); for (const [h, c] of cols) tr.append(el("th", null, `${h} · ${CLI_NAMES[c] || c}`)); };
+  const t1 = el("tr"); header(t1); mh.append(t1);
+  const t2 = el("tr"); header(t2); sh.append(t2);
+  const matrix = (kind, body) => {
+    const names = new Set();
+    for (const h of hosts) for (const v of Object.values(h.clis)) for (const x of v[kind]) names.add(kind === "mcp" ? x.name : x);
+    for (const name of [...names].sort()) {
+      const tr = el("tr"); tr.append(el("td", null, name));
+      for (const [hn, c] of cols) {
+        const v = hosts.find((h) => h.host === hn).clis[c][kind];
+        const hit = kind === "mcp" ? v.find((x) => x.name === name) : v.includes(name);
+        const status = kind === "mcp" && hit ? hit.status : "";
+        tr.append(el("td", hit ? (status && status !== "ok" && status !== "configured" ? "warn" : "ok") : "muted", hit ? (status && status !== "ok" && status !== "configured" ? status : "✓") : "–"));
+      }
+      body.append(tr);
+    }
+  };
+  matrix("mcp", mr); matrix("skills", sr);
+}
+</script>
+<script>
+(() => {
+  let next = 0;
+  const pending = new Map();
+  const { port1, port2 } = new MessageChannel();
+  port1.onmessage = ({ data: m }) => {
+    if (m.event === "theme") {
+      for (const [k, v] of Object.entries(m.data.cssVars || {})) document.documentElement.style.setProperty(k, String(v));
+      return;
+    }
+    if (m.event) return;
+    const done = pending.get(m.id); pending.delete(m.id);
+    if (done) done(m);
+  };
+  const request = (msg, post) => {
+    const id = ++next;
+    const reply = new Promise((resolve, reject) => pending.set(id, (m) => (m.error ? reject(m.error) : resolve(m.result))));
+    post({ aoeBridge: 1, id, ...msg });
+    return reply;
+  };
+  const call = (method, params) => request({ method, params }, (m) => port1.postMessage(m));
+  window.el = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; };
+  window.level = (v, warn = 80, bad = 92) => v == null ? "" : v >= bad ? "bad" : v >= warn ? "warn" : "ok";
+  window.pct = (v) => v == null ? "-" : `${Math.round(v)}%`;
+  async function load() {
+    try {
+      const body = await call("plugins.uiState");
+      const entries = Array.isArray(body) ? body : body.entries || [];
+      const mine = entries.find((e) => e.plugin_id === "dev.hyunwook.home-monitor" && e.slot === "page" && e.id === PAGE_ID);
+      render(mine ? mine.payload : null);
+    } catch (err) {
+      document.getElementById("sub").textContent = `불러오지 못했습니다: ${err.message || err.code || err}`;
+    }
+  }
+  request({ method: "ready", params: { nonce: location.hash.slice(1) } }, (m) => parent.postMessage(m, "*", [port2])).then(load);
+  setInterval(load, 30000);
+})();
+</script>
+</body>
+</html>

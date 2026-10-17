@@ -55,6 +55,7 @@ aoe serve --restart
 | `wake_hosts` / `wake_command` | (비움) | 꺼진 서버 칸에 "켜기 (WOL)" 버튼을 보일 서버 id 목록과, `{host}` 자리에 id가 들어가는 켜기 명령(예: Wake-on-LAN 도구). 목록에 없는 서버는 거부합니다 |
 | `power_command` / `power_switch_command` | (비움) | 스마트 멀티탭 상태 JSON(switch, power_w, today_wh, month_wh, history)을 출력하는 명령과, `{action}`에 on/off가 들어가는 켜기·끄기 명령. 대시보드에 전력·사용량·두 번 눌러 켜고 끄는 버튼이 생깁니다 |
 | `vpn_switch_command` / `shutdown_command` | (비움) | VPN 연결·해제(`{action}` = up/down)와, `wake_hosts` 서버 끄기·취소(`{host}`, `{action}` = off/cancel) 명령. 대시보드에 두 번 눌러 실행하는 버튼이 생깁니다 |
+| `tools_command` | (비움) | 서버·CLI별 MCP 서버와 스킬 목록 JSON을 출력하는 명령. 대시보드 "도구" 패널과 "도구 (MCP·스킬)" 페이지(서버×CLI 표)에 보입니다. 10분마다 다시 읽습니다 |
 | `refresh_secs` | 60 | 갱신 주기(초) |
 
 ## 테스트
