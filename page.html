@@ -36,8 +36,8 @@
 <div class="sub" id="sub">불러오는 중…</div>
 <div class="grid" id="grid"></div>
 <h2>구독 사용량</h2>
-<div class="sub">같은 계정을 여러 서버가 쓰면 한 줄로 합칩니다. 사용량을 더하지 않습니다.</div>
-<table><thead><tr><th>서비스</th><th>요금제</th><th>창</th><th>쓰는 서버</th></tr></thead><tbody id="subs"></tbody></table>
+<div class="sub">서버마다 그 서버에 로그인된 계정과 사용량입니다. 같은 계정이면 사용량을 더하지 않습니다.</div>
+<table><thead id="subs-head"><tr><th>서비스</th><th>요금제</th><th>창</th><th>쓰는 서버</th></tr></thead><tbody id="subs"></tbody></table>
 <script>
 (() => {
   let next = 0;
@@ -95,6 +95,31 @@
       }
       card.append(nums, spark(h.cpuSeries), el("div", "label", "CPU"), spark(h.memSeries), el("div", "label", "메모리"));
       grid.append(card);
+    }
+    if (state.usage && state.usage.length) {
+      const NAMES = { codex: "Codex", claude: "Claude", grok: "Grok", antigravity: "Antigravity", kimi: "Kimi", opencode: "OpenCode" };
+      const STATUS = { logged_in: "로그인됨 · 사용량 미확인", expired: "토큰 만료", failed: "조회 실패", unknown: "확인 불가" };
+      const head = document.getElementById("subs-head");
+      head.replaceChildren();
+      const hr = el("tr");
+      for (const h of ["서버", "서비스", "요금제", "계정", "사용량"]) hr.append(el("th", null, h));
+      head.append(hr);
+      for (const host of state.usage) {
+        const providers = host.providers || [];
+        if (!providers.length) { const tr = el("tr"); tr.append(el("td", null, host.host), el("td", "meta", host.error || "로그인된 구독 없음")); subs.append(tr); }
+        for (const p of providers) {
+          const windows = (p.windows || []).filter((w) => typeof w.used === "number");
+          const top = windows.length ? Math.max(...windows.map((w) => w.used)) : null;
+          const tr = el("tr");
+          const usageCell = el("td", top == null ? (p.status === "expired" || p.status === "failed" ? "bad" : "meta") : level(top, 70, 90),
+            windows.length ? windows.map((w) => `${w.label} ${Math.round(w.used)}%`).join(" · ") : (STATUS[p.status] || p.status));
+          if (p.reason) usageCell.title = p.reason;
+          tr.append(el("td", null, host.host), el("td", null, NAMES[p.tool] || p.tool), el("td", null, p.plan || "-"),
+            el("td", "meta", p.account || "-"), usageCell);
+          subs.append(tr);
+        }
+      }
+      return;
     }
     for (const s of state.subscriptions || []) {
       const tr = el("tr");

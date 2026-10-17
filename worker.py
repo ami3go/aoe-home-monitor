@@ -10,6 +10,8 @@ from __future__ import annotations
 import itertools
 import json
 import os
+import shlex
+import subprocess
 import sys
 import threading
 import urllib.request
@@ -141,6 +143,49 @@ def subscriptions(hosts: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return list(seen.values())
 
 
+TOOL_NAME = {"codex": "Codex", "claude": "Claude", "grok": "Grok", "antigravity": "Antigravity",
+             "kimi": "Kimi", "opencode": "OpenCode"}
+STATUS_KO = {"logged_in": "로그인됨 · 사용량 미확인", "expired": "토큰 만료", "failed": "조회 실패", "unknown": "확인 불가"}
+
+
+def fetch_usage(command: str) -> dict[str, Any] | None:
+    """Optional per-host subscription usage from a command printing {"hosts": [{"host", "providers": [...]}]}."""
+    if not command.strip():
+        return None
+    try:
+        done = subprocess.run(shlex.split(os.path.expanduser(command)), capture_output=True, text=True, timeout=120)
+        return json.loads(done.stdout)
+    except Exception as exc:  # noqa: BLE001
+        log(f"usage command: {exc}")
+        return None
+
+
+def usage_blocks(usage: dict[str, Any]) -> list[dict[str, Any]]:
+    """One section per host listing every logged-in subscription, its account and its windows."""
+    blocks = []
+    for host in usage.get("hosts") or []:
+        rows = []
+        for p in host.get("providers") or []:
+            windows = p.get("windows") or []
+            top = max((w["used"] for w in windows if isinstance(w.get("used"), (int, float))), default=None)
+            detail = " · ".join(f"{w.get('label')} {w.get('used'):.0f}%" for w in windows
+                                if isinstance(w.get("used"), (int, float)))
+            rows.append({"kind": "row", "prefix": TOOL_NAME.get(p.get("tool"), p.get("tool")),
+                         "label": p.get("plan") or "-",
+                         "sublabel": " · ".join(filter(None, [p.get("account"), detail])),
+                         "value": f"{top:.0f}%" if top is not None else STATUS_KO.get(p.get("status"), p.get("status")),
+                         "value_tone": tone(top, 70, 90) if top is not None else
+                         ("danger" if p.get("status") in ("expired", "failed") else "neutral"),
+                         "tooltip": p.get("reason") or None})
+        if host.get("error"):
+            rows.append({"kind": "note", "tone": "danger", "text": host["error"]})
+        if not rows:
+            rows.append({"kind": "note", "text": "로그인된 구독 없음"})
+        blocks.append({"kind": "section", "title": f"구독 · {host.get('host')}", "boxed": True, "collapsible": True,
+                       "children": rows})
+    return blocks
+
+
 def host_block(s: dict[str, Any]) -> dict[str, Any]:
     if not s["up"]:
         return {"kind": "section", "title": s["name"], "boxed": True, "value": "연결 끊김", "value_tone": "danger",
@@ -162,7 +207,7 @@ def host_block(s: dict[str, Any]) -> dict[str, Any]:
             ]}
 
 
-def build(data: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+def build(data: dict[str, Any], usage: dict[str, Any] | None = None) -> tuple[dict[str, Any], dict[str, Any]]:
     hosts = [summarize(h) for h in data.get("hosts") or []]
     subs = subscriptions(data.get("hosts") or [])
     up = sum(1 for h in hosts if h["up"])
@@ -174,7 +219,9 @@ def build(data: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
         blocks.append({"kind": "callout", "tone": "danger" if up < len(hosts) else "warn",
                        "title": "확인할 서버가 있습니다", "detail": " · ".join(problems)})
     blocks.extend(host_block(h) for h in hosts)
-    if subs:
+    if usage:
+        blocks.extend(usage_blocks(usage))
+    elif subs:
         rows = []
         for sub in subs:
             windows = sub["windows"]
@@ -190,14 +237,15 @@ def build(data: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
     pane = {"title": "서버 상태", "icon": "activity", "blocks": blocks,
             "footer": {"text": f"갱신 {now}", "value": f"서버 {up}/{len(hosts)}",
                        "tone": "success" if up == len(hosts) else "danger", "icon": "refresh-cw"}}
-    page = {"observedAt": data.get("observedAt"), "updated": now, "hosts": hosts, "subscriptions": subs}
+    page = {"observedAt": data.get("observedAt"), "updated": now, "hosts": hosts, "subscriptions": subs,
+            "usage": (usage or {}).get("hosts")}
     return pane, page
 
 
 def refresh() -> int:
     url = setting("source_url", "http://127.0.0.1:4317/api/dashboard?range=24h")
     try:
-        pane, page = build(fetch(url))
+        pane, page = build(fetch(url), fetch_usage(str(setting("usage_command", "") or "")))
     except Exception as exc:  # noqa: BLE001
         pane = {"title": "서버 상태", "icon": "activity",
                 "blocks": [{"kind": "callout", "tone": "danger", "title": "수집기에 연결할 수 없습니다",
