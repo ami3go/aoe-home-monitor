@@ -28,6 +28,8 @@ _pending: dict[int, dict[str, Any]] = {}
 _pending_lock = threading.Lock()
 _out_lock = threading.Lock()
 _wake = threading.Event()
+_history = {"host": None, "range": "7d"}
+RANGE_DAYS = {"24h": 1, "7d": 7, "30d": 30, "90d": 90}
 
 
 def log(msg: str) -> None:
@@ -73,6 +75,14 @@ def reader() -> None:
             continue
         method = str(msg.get("method", ""))
         tail = method.rsplit(".", 1)[-1]
+        if tail == "history_select":
+            params = msg.get("params") or {}
+            params = params.get("params", params) if isinstance(params, dict) else {}
+            if isinstance(params.get("host"), str):
+                _history["host"] = params["host"]
+            if params.get("range") in RANGE_DAYS:
+                _history["range"] = params["range"]
+            threading.Thread(target=push_history, daemon=True).start()
         if tail in {"refresh", "changed"}:
             _wake.set()
         if msg.get("id") is not None:
@@ -287,10 +297,56 @@ def build(data: dict[str, Any], usage: dict[str, Any] | None = None) -> dict[str
     }
 
 
+_known_hosts: list[dict[str, str]] = []
+
+
+def collector_base(url: str) -> str:
+    from urllib.parse import urlparse
+    u = urlparse(url)
+    return f"{u.scheme}://{u.netloc}"
+
+
+def history_payload(base: str, hosts: list[dict[str, str]], host: str, rng: str) -> dict[str, Any]:
+    """Selected host and range: chart points, busiest hours and the weekday x hour profile."""
+    from urllib.parse import quote
+    hist = fetch(f"{base}/api/monitor/history?host={quote(host)}&range={rng}")
+    prof = fetch(f"{base}/api/monitor/profile?host={quote(host)}&days={RANGE_DAYS[rng]}")
+    keep = ("at", "up", "cpuAvg", "cpuMax", "memAvg", "memMax", "diskMax", "rxRate", "txRate", "rxBytes", "txBytes")
+    r1 = lambda v: round(v, 1) if isinstance(v, (int, float)) else v  # noqa: E731
+    points = [{k: r1(p.get(k)) for k in keep} for p in hist.get("points") or []]
+    rows = [{k: r1(p.get(k)) for k in keep} for p in hist.get("rows") or []]
+    cells = [{k: r1(c.get(k)) for k in ("dow", "hour", "cpuAvg", "cpuMax", "memAvg", "rxRate", "txRate", "samples")}
+             for c in prof.get("cells") or []]
+    return {"hosts": hosts, "host": host, "range": rng, "rowSeconds": hist.get("rowSeconds"),
+            "firstSampleAt": hist.get("firstSampleAt"), "points": points, "rows": rows[:120], "cells": cells,
+            "peaks": [{k: r1(p.get(k)) for k in keep} for p in prof.get("peaks") or []],
+            "busiestNet": [{k: r1(p.get(k)) for k in keep} for p in prof.get("busiestNet") or []],
+            "updated": datetime.now(timezone.utc).astimezone().strftime("%H:%M:%S")}
+
+
+def push_history() -> None:
+    try:
+        base = collector_base(setting("source_url", "http://127.0.0.1:4317/api/dashboard?range=24h"))
+        if not _known_hosts:
+            return
+        host = _history["host"] if any(h["id"] == _history["host"] for h in _known_hosts) else _known_hosts[0]["id"]
+        _history["host"] = host
+        payload = history_payload(base, _known_hosts, host, _history["range"])
+    except Exception as exc:  # noqa: BLE001
+        payload = {"error": str(exc), "hosts": _known_hosts, "host": _history["host"], "range": _history["range"]}
+    try:
+        call("ui.state.set", {"slot": "page", "id": "history", "payload": payload})
+    except Exception as exc:  # noqa: BLE001
+        log(f"history push: {exc}")
+
+
 def refresh() -> int:
     url = setting("source_url", "http://127.0.0.1:4317/api/dashboard?range=24h")
     try:
-        out = build(fetch(url), fetch_usage(str(setting("usage_command", "") or "")))
+        data = fetch(url)
+        _known_hosts[:] = [{"id": h.get("id"), "name": h.get("name") or h.get("id")} for h in data.get("hosts") or []
+                           if h.get("id")]
+        out = build(data, fetch_usage(str(setting("usage_command", "") or "")))
     except Exception as exc:  # noqa: BLE001
         failed = {"kind": "callout", "tone": "danger", "title": "수집기에 연결할 수 없습니다", "detail": f"{url}: {exc}"}
         out = {"servers": {"title": "서버 상태", "icon": "activity", "blocks": [failed],
@@ -303,6 +359,7 @@ def refresh() -> int:
     call("ui.state.set", {"slot": "home-pane", "id": "subscriptions", "payload": out["subscriptions"]})
     call("ui.state.set", {"slot": "page", "id": "monitor", "payload": out["monitor"]})
     call("ui.state.set", {"slot": "page", "id": "subscriptions", "payload": out["subscriptions_page"]})
+    push_history()
     return max(15, int(setting("refresh_secs", 60)))
 
 
