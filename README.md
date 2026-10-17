@@ -37,13 +37,14 @@ aoe plugin install gh:hyunwook711/aoe-home-monitor
 aoe serve --restart
 ```
 
-요청하는 권한: `runtime.worker`, `net`(수집기 주소 조회), `session.read`(페이지가 브리지로 자기 상태를 읽음).
+요청하는 권한: `runtime.worker`, `net`(수집기 주소 조회), `session.read`(페이지가 브리지로 자기 상태를 읽음), `process.spawn`(`usage_command` 실행).
 
 ## 설정
 
 | 키 | 기본값 | 설명 |
 |---|---|---|
 | `source_url` | `http://127.0.0.1:4317/api/dashboard?range=24h` | 수집기 JSON 주소 |
+| `usage_command` | (비움) | 서버별 구독 사용량 JSON을 출력하는 명령(선택). `{"hosts": [{"host", "providers": [{"tool", "plan", "account", "status", "windows": [{"label", "used"}]}]}]}`. 넣으면 서버마다 로그인된 계정과 사용량을 보여줍니다 |
 | `refresh_secs` | 60 | 갱신 주기(초) |
 
 ## 테스트
