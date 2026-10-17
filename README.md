@@ -51,6 +51,7 @@ aoe serve --restart
 |---|---|---|
 | `source_url` | `http://127.0.0.1:4317/api/dashboard?range=24h` | 수집기 JSON 주소 |
 | `usage_command` | (비움) | 서버별 구독 사용량 JSON을 출력하는 명령(선택). `{"hosts": [{"host", "providers": [{"tool", "plan", "account", "status", "windows": [{"label", "used"}]}]}]}`. 넣으면 서버마다 로그인된 계정과 사용량을 보여줍니다 |
+| `vpn_command` | (비움) | VPN 상태를 출력하는 명령(선택). `state: CONNECTED (이름)`, `started:`, `expires:`, `route IP -> 인터페이스` 줄을 읽어 대시보드 서버 상태 맨 위에 보여줍니다 |
 | `refresh_secs` | 60 | 갱신 주기(초) |
 
 ## 테스트

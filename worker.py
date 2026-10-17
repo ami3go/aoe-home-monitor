@@ -220,6 +220,31 @@ def fetch_usage(command: str) -> dict[str, Any] | None:
         return None
 
 
+def fetch_vpn(command: str) -> dict[str, Any] | None:
+    """Optional VPN status from a command printing `state: X (name)`, `started:`, `expires:`, `route a -> if` lines."""
+    if not command.strip():
+        return None
+    try:
+        done = subprocess.run([os.path.expanduser(a) for a in shlex.split(command)], capture_output=True, text=True,
+                              timeout=30)
+    except Exception as exc:  # noqa: BLE001
+        return {"state": "UNKNOWN", "error": str(exc)[:200]}
+    info: dict[str, Any] = {"routes": [], "connected": done.returncode == 0}
+    for line in done.stdout.splitlines():
+        key, _, value = line.partition(":")
+        key, value = key.strip(), value.strip()
+        if key == "state":
+            state, _, name = value.partition(" ")
+            info["state"], info["name"] = state, name.strip("()")
+        elif key in ("started", "expires"):
+            info[key] = value.replace(" (auto-disconnect)", "")
+        elif line.startswith("route "):
+            info["routes"].append(line[len("route "):])
+        elif line.startswith("home "):
+            info["local"] = line[len("home "):]
+    return info
+
+
 def usage_blocks(usage: dict[str, Any]) -> list[dict[str, Any]]:
     """One section per host listing every logged-in subscription, its account and its windows."""
     blocks = []
@@ -284,7 +309,8 @@ DASHBOARD_LINK = {"kind": "action", "label": "대시보드 열기", "href": "/pl
 HOME_PANE = {"title": "대시보드", "icon": "layout-dashboard", "blocks": [DASHBOARD_LINK]}
 
 
-def build(data: dict[str, Any], usage: dict[str, Any] | None = None) -> dict[str, dict[str, Any]]:
+def build(data: dict[str, Any], usage: dict[str, Any] | None = None,
+          vpn: dict[str, Any] | None = None) -> dict[str, dict[str, Any]]:
     """Two home panes and two pages: server health, and subscription usage."""
     hosts = [summarize(h) for h in data.get("hosts") or []]
     subs = subscriptions(data.get("hosts") or [])
@@ -329,7 +355,7 @@ def build(data: dict[str, Any], usage: dict[str, Any] | None = None) -> dict[str
                           "footer": {"text": f"갱신 {now}", "value": footer_value, "tone": "neutral"}}
     return {
         "servers": servers, "subscriptions": subscriptions_pane,
-        "monitor": {"observedAt": data.get("observedAt"), "updated": now, "hosts": hosts},
+        "monitor": {"observedAt": data.get("observedAt"), "updated": now, "hosts": hosts, "vpn": vpn},
         "subscriptions_page": {"updated": now, "subscriptions": subs, "usage": (usage or {}).get("hosts")},
     }
 
@@ -383,7 +409,8 @@ def refresh() -> int:
         data = fetch(url)
         _known_hosts[:] = [{"id": h.get("id"), "name": h.get("name") or h.get("id")} for h in data.get("hosts") or []
                            if h.get("id")]
-        out = build(data, fetch_usage(str(setting("usage_command", "") or "")))
+        out = build(data, fetch_usage(str(setting("usage_command", "") or "")),
+                    fetch_vpn(str(setting("vpn_command", "") or "")))
     except Exception as exc:  # noqa: BLE001
         failed = {"kind": "callout", "tone": "danger", "title": "수집기에 연결할 수 없습니다", "detail": f"{url}: {exc}"}
         out = {"servers": {"title": "서버 상태", "icon": "activity", "blocks": [failed],

@@ -74,6 +74,8 @@
   .tiles { display: grid; gap: 8px; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); }
   .tile { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
   .tile.down { border-color: var(--bad); }
+  .tile.vpn { margin-bottom: 8px; }
+  .tile.vpn.on { border-color: var(--ok); }
   .tile .t { display: flex; justify-content: space-between; font-weight: 600; font-size: 13px; margin-bottom: 4px; }
   .kv { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); }
   .kv { gap: 6px; align-items: baseline; }
@@ -190,6 +192,21 @@ function serversPanel(entries) {
   const hosts = mon?.hosts || [];
   const up = hosts.filter((h) => h.up).length;
   const [p, body] = panel("servers", "서버 상태", mon ? `서버 ${up}/${hosts.length} · ${mon.updated || ""}` : "");
+  const vpn = mon?.vpn;
+  if (vpn) {
+    const on = vpn.state === "CONNECTED";
+    const box = el("div", "tile vpn" + (on ? " on" : ""));
+    const head = el("div", "t");
+    head.append(el("span", null, `회사 VPN${vpn.name ? ` · ${vpn.name}` : ""}`), el("span", on ? "ok" : "muted", on ? "연결됨" : vpn.state === "UNKNOWN" ? "확인 불가" : "꺼짐"));
+    box.append(head);
+    if (on) {
+      const kv = el("div", "kv"); kv.append(el("span", null, "켠 시각"), el("span", "amount", vpn.started || "-")); box.append(kv);
+      const kv2 = el("div", "kv"); kv2.append(el("span", null, "자동 해제"), el("span", "amount", vpn.expires || "Tunnelblick에서 직접 켬")); box.append(kv2);
+      for (const r of vpn.routes || []) { const k = el("div", "kv"); k.append(el("span", "amount", r)); box.append(k); }
+      if (vpn.local) { const k = el("div", "kv"); k.append(el("span", "amount", vpn.local)); box.append(k); }
+    } else if (vpn.error) box.append(el("div", "muted", vpn.error));
+    body.append(box);
+  }
   const tiles = el("div", "tiles");
   for (const h of hosts) {
     const t = el("div", h.up ? "tile" : "tile down");
