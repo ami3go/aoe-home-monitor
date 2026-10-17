@@ -32,21 +32,31 @@ class WorkerTests(unittest.TestCase):
         self.assertEqual((s["mem"], s["disk"], s["up"]), (50.0, 90.0, True))
         self.assertEqual(s["cpuSeries"], [10.0, 0])
 
-    def test_pane_and_page(self):
-        pane, page = worker.build(DATA)
-        self.assertEqual(pane["footer"]["value"], "서버 2/3")
-        callout = pane["blocks"][0]
-        self.assertEqual(callout["kind"], "callout")
+    def test_panes_and_pages(self):
+        out = worker.build(DATA)
+        servers, subs = out["servers"], out["subscriptions"]
+        self.assertEqual(servers["footer"]["value"], "서버 2/3")
+        callout = servers["blocks"][0]
         self.assertIn("gone", callout["detail"])
-        self.assertIn("main 디스크 90%", callout["detail"])
-        sections = [b for b in pane["blocks"] if b["kind"] == "section"]
-        self.assertEqual(sections[0]["value_tone"], "warn")
-        self.assertEqual(sections[2]["value"], "연결 끊김")
-        subs = page["subscriptions"]
-        self.assertEqual(len(subs), 1)  # same plan on two hosts is one account; stale usage is skipped
-        self.assertEqual(subs[0]["hosts"], ["main", "sub"])
-        self.assertLess(len(json.dumps(page).encode()), 64 * 1024)
-        self.assertLess(len(json.dumps(pane).encode()), 64 * 1024)
+        self.assertIn("main ? 90%", callout["detail"])  # per-mount disk warning
+        main = [b for b in servers["blocks"] if b["kind"] == "section"][0]
+        kinds = [c.get("prefix") for c in main["children"] if c["kind"] == "row"]
+        self.assertEqual(kinds, ["네트워크", "디스크", "디스크"])
+        self.assertEqual(subs["title"], "구독 상태")
+        self.assertEqual(len(out["subscriptions_page"]["subscriptions"]), 1)
+        self.assertEqual(len(out["monitor"]["hosts"][0]["disks"]), 2)
+        for value in out.values():
+            self.assertLess(len(json.dumps(value).encode()), 64 * 1024)
+
+    def test_usage_split_into_subscription_pane(self):
+        usage = {"hosts": [{"host": "m4", "providers": [{"tool": "codex", "plan": "Team", "account": "a@x",
+                                                         "status": "fresh", "windows": [{"label": "Weekly", "used": 85}]}]}]}
+        out = worker.build(DATA, usage)
+        titles = [b.get("title") for b in out["subscriptions"]["blocks"]]
+        self.assertIn("한도에 가까운 구독", titles)
+        self.assertIn("구독 · m4", titles)
+        self.assertNotIn("구독 · m4", [b.get("title") for b in out["servers"]["blocks"]])
+        self.assertEqual(worker.human_bytes(1653454.5, True), "1.7 MB/s")
 
 
 if __name__ == "__main__":

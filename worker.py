@@ -125,7 +125,24 @@ def summarize(host: dict[str, Any]) -> dict[str, Any]:
         "cpuSeries": [round(h["cpuAvg"], 1) if h.get("cpuAvg") is not None else 0 for h in history],
         "memSeries": [round(h["memAvg"], 1) if h.get("memAvg") is not None else 0 for h in history],
         "diskSeries": [round(h["diskMax"], 1) if h.get("diskMax") is not None else 0 for h in history],
+        "disks": [{"mount": d.get("mount") or "?", "total": d.get("total"), "used": d.get("used"),
+                   "pct": pct(d.get("used"), d.get("total"))} for d in reading.get("disks") or []],
+        "rx": (host.get("rates") or {}).get("rx"), "tx": (host.get("rates") or {}).get("tx"),
+        "rxSeries": [round(h.get("rxRate") or 0) for h in history],
+        "txSeries": [round(h.get("txRate") or 0) for h in history],
     }
+
+
+def human_bytes(value: float | None, rate: bool = False) -> str:
+    if value is None:
+        return "-"
+    units = ["B", "KB", "MB", "GB", "TB", "PB"]
+    i = 0
+    while value >= 1000 and i < len(units) - 1:
+        value /= 1000.0
+        i += 1
+    text = f"{value:.0f}" if value >= 100 or i == 0 else f"{value:.1f}"
+    return f"{text} {units[i]}{'/s' if rate else ''}"
 
 
 def subscriptions(hosts: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -196,65 +213,96 @@ def host_block(s: dict[str, Any]) -> dict[str, Any]:
         else "warn" if tone(s["disk"], DISK_WARN, DISK_DANGER) == "warn" or tone(worst) == "warn" else "success"
     fmt = lambda v: "-" if v is None else f"{v:.0f}%"  # noqa: E731
     bands = [{"at": WARN, "tone": "warn"}, {"at": DANGER, "tone": "danger"}]
+    children: list[dict[str, Any]] = [
+        {"kind": "sparkline", "values": s["cpuSeries"][-96:] or [0], "max": 100, "bands": bands,
+         "caption": "CPU 24시간"},
+        {"kind": "sparkline", "values": s["memSeries"][-96:] or [0], "max": 100, "bands": bands,
+         "caption": "메모리 24시간"},
+        {"kind": "row", "prefix": "네트워크", "label": f"↓ {human_bytes(s['rx'], True)}  ↑ {human_bytes(s['tx'], True)}",
+         "mono": True},
+        {"kind": "sparkline", "values": s["rxSeries"][-96:] or [0], "caption": "받기 24시간"},
+        {"kind": "sparkline", "values": s["txSeries"][-96:] or [0], "caption": "보내기 24시간"},
+    ]
+    for d in s["disks"]:
+        children.append({"kind": "row", "prefix": "디스크", "label": d["mount"],
+                         "sublabel": f"{human_bytes(d['used'])} / {human_bytes(d['total'])}",
+                         "value": fmt(d["pct"]), "value_tone": tone(d["pct"], DISK_WARN, DISK_DANGER), "mono": True})
+        if d["pct"] is not None:
+            children.append({"kind": "bar", "segments": [
+                {"value": d["pct"], "tone": tone(d["pct"], DISK_WARN, DISK_DANGER)},
+                {"value": max(0.0, 100 - d["pct"]), "tone": "neutral"}]})
     return {"kind": "section", "title": s["name"], "boxed": True, "collapsible": True,
             "collapsed": head_tone == "success",
-            "value": f"CPU {fmt(s['cpu'])} · 메모리 {fmt(s['mem'])} · 디스크 {fmt(s['disk'])}",
-            "value_tone": head_tone,
-            "children": [
-                {"kind": "sparkline", "values": s["cpuSeries"][-96:] or [0], "max": 100, "bands": bands,
-                 "caption": "CPU 24시간"},
-                {"kind": "sparkline", "values": s["memSeries"][-96:] or [0], "max": 100, "bands": bands,
-                 "caption": "메모리 24시간"},
-            ]}
+            "value": f"CPU {fmt(s['cpu'])} · 메모리 {fmt(s['mem'])} · 디스크 {fmt(s['disk'])} · ↓{human_bytes(s['rx'], True)}",
+            "value_tone": head_tone, "children": children}
 
 
-def build(data: dict[str, Any], usage: dict[str, Any] | None = None) -> tuple[dict[str, Any], dict[str, Any]]:
+def build(data: dict[str, Any], usage: dict[str, Any] | None = None) -> dict[str, dict[str, Any]]:
+    """Two home panes and two pages: server health, and subscription usage."""
     hosts = [summarize(h) for h in data.get("hosts") or []]
     subs = subscriptions(data.get("hosts") or [])
     up = sum(1 for h in hosts if h["up"])
     problems = [h["name"] for h in hosts if not h["up"]] + [
-        f"{h['name']} 디스크 {h['disk']:.0f}%" for h in hosts if h["up"] and (h["disk"] or 0) >= DISK_WARN] + [
+        f"{h['name']} {d['mount']} {d['pct']:.0f}%" for h in hosts if h["up"] for d in h["disks"]
+        if (d["pct"] or 0) >= DISK_WARN] + [
         f"{h['name']} 메모리 {h['mem']:.0f}%" for h in hosts if h["up"] and (h["mem"] or 0) >= DANGER]
+    now = datetime.now(timezone.utc).astimezone().strftime("%H:%M:%S")
     blocks: list[dict[str, Any]] = []
     if problems:
         blocks.append({"kind": "callout", "tone": "danger" if up < len(hosts) else "warn",
                        "title": "확인할 서버가 있습니다", "detail": " · ".join(problems)})
     blocks.extend(host_block(h) for h in hosts)
+    blocks.append({"kind": "action", "label": "지금 새로고침", "method": "refresh", "icon": "refresh-cw"})
+    servers = {"title": "서버 상태", "icon": "activity", "blocks": blocks,
+               "footer": {"text": f"갱신 {now}", "value": f"서버 {up}/{len(hosts)}",
+                          "tone": "success" if up == len(hosts) else "danger", "icon": "refresh-cw"}}
     if usage:
-        blocks.extend(usage_blocks(usage))
-    elif subs:
+        sub_blocks = usage_blocks(usage)
+        accounts = sum(len(h.get("providers") or []) for h in usage.get("hosts") or [])
+        hot = [f"{h.get('host')} {TOOL_NAME.get(p.get('tool'), p.get('tool'))} {w['used']:.0f}%"
+               for h in usage.get("hosts") or [] for p in h.get("providers") or [] for w in p.get("windows") or []
+               if isinstance(w.get("used"), (int, float)) and w["used"] >= 80]
+        if hot:
+            sub_blocks.insert(0, {"kind": "callout", "tone": "warn", "title": "한도에 가까운 구독",
+                                  "detail": " · ".join(hot)})
+        footer_value = f"계정 {accounts}개"
+    else:
         rows = []
         for sub in subs:
             windows = sub["windows"]
             top = max((w.get("usedPercent") or 0 for w in windows), default=None)
             rows.append({"kind": "row", "prefix": sub["tool"], "label": sub["plan"] or "-",
                          "sublabel": " · ".join(f"{w.get('label')} {w.get('usedPercent', '?')}%" for w in windows),
-                         "value": "-" if top is None else f"{top:.0f}%",
-                         "value_tone": tone(top, 70, 90)})
-        blocks.append({"kind": "section", "title": "구독 사용량", "boxed": True, "collapsible": True,
-                       "children": rows})
-    blocks.append({"kind": "action", "label": "지금 새로고침", "method": "refresh", "icon": "refresh-cw"})
-    now = datetime.now(timezone.utc).astimezone().strftime("%H:%M:%S")
-    pane = {"title": "서버 상태", "icon": "activity", "blocks": blocks,
-            "footer": {"text": f"갱신 {now}", "value": f"서버 {up}/{len(hosts)}",
-                       "tone": "success" if up == len(hosts) else "danger", "icon": "refresh-cw"}}
-    page = {"observedAt": data.get("observedAt"), "updated": now, "hosts": hosts, "subscriptions": subs,
-            "usage": (usage or {}).get("hosts")}
-    return pane, page
+                         "value": "-" if top is None else f"{top:.0f}%", "value_tone": tone(top, 70, 90)})
+        sub_blocks = [{"kind": "section", "title": "구독 사용량", "boxed": True, "children": rows or
+                       [{"kind": "note", "text": "확인된 구독이 없습니다."}]}]
+        footer_value = f"구독 {len(subs)}개"
+    sub_blocks.append({"kind": "action", "label": "지금 새로고침", "method": "refresh", "icon": "refresh-cw"})
+    subscriptions_pane = {"title": "구독 상태", "icon": "gauge", "blocks": sub_blocks,
+                          "footer": {"text": f"갱신 {now}", "value": footer_value, "tone": "neutral"}}
+    return {
+        "servers": servers, "subscriptions": subscriptions_pane,
+        "monitor": {"observedAt": data.get("observedAt"), "updated": now, "hosts": hosts},
+        "subscriptions_page": {"updated": now, "subscriptions": subs, "usage": (usage or {}).get("hosts")},
+    }
 
 
 def refresh() -> int:
     url = setting("source_url", "http://127.0.0.1:4317/api/dashboard?range=24h")
     try:
-        pane, page = build(fetch(url), fetch_usage(str(setting("usage_command", "") or "")))
+        out = build(fetch(url), fetch_usage(str(setting("usage_command", "") or "")))
     except Exception as exc:  # noqa: BLE001
-        pane = {"title": "서버 상태", "icon": "activity",
-                "blocks": [{"kind": "callout", "tone": "danger", "title": "수집기에 연결할 수 없습니다",
-                            "detail": f"{url}: {exc}"}],
-                "footer": {"text": "갱신 실패", "tone": "danger"}}
-        page = {"error": str(exc), "hosts": [], "subscriptions": []}
-    call("ui.state.set", {"slot": "home-pane", "id": "servers", "payload": pane})
-    call("ui.state.set", {"slot": "page", "id": "monitor", "payload": page})
+        failed = {"kind": "callout", "tone": "danger", "title": "수집기에 연결할 수 없습니다", "detail": f"{url}: {exc}"}
+        out = {"servers": {"title": "서버 상태", "icon": "activity", "blocks": [failed],
+                           "footer": {"text": "갱신 실패", "tone": "danger"}},
+               "subscriptions": {"title": "구독 상태", "icon": "gauge", "blocks": [failed],
+                                 "footer": {"text": "갱신 실패", "tone": "danger"}},
+               "monitor": {"error": str(exc), "hosts": []},
+               "subscriptions_page": {"error": str(exc), "subscriptions": [], "usage": None}}
+    call("ui.state.set", {"slot": "home-pane", "id": "servers", "payload": out["servers"]})
+    call("ui.state.set", {"slot": "home-pane", "id": "subscriptions", "payload": out["subscriptions"]})
+    call("ui.state.set", {"slot": "page", "id": "monitor", "payload": out["monitor"]})
+    call("ui.state.set", {"slot": "page", "id": "subscriptions", "payload": out["subscriptions_page"]})
     return max(15, int(setting("refresh_secs", 60)))
 
 

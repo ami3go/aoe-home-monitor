@@ -6,8 +6,10 @@ An AoE plugin that shows server health (CPU, memory, disk, 24 h history) and sub
 
 ## 화면
 
-- 홈 패널 "서버 상태": 서버마다 CPU·메모리·디스크 현재값과 24시간 그래프. 연결이 끊기거나 디스크 85%·메모리 92%를 넘으면 맨 위에 경고. 구독 사용량(같은 계정을 여러 서버가 써도 한 줄, 사용량은 더하지 않음).
-- 페이지 "서버 모니터링": 서버 카드 격자와 구독 표.
+- 홈 패널 "서버 상태": 서버마다 CPU·메모리 현재값과 24시간 그래프, 네트워크 받기·보내기 속도와 그래프, 마운트된 디스크별 사용량. 연결이 끊기거나 디스크(마운트별) 85%·메모리 92%를 넘으면 맨 위에 경고.
+- 홈 패널 "구독 상태": 서버마다 로그인된 계정과 사용량(`usage_command`를 넣은 경우), 80%를 넘은 한도 경고. 같은 계정을 여러 서버가 써도 사용량을 더하지 않음.
+- 페이지 "서버 모니터링": 서버 카드 격자(네트워크 그래프, 디스크 막대).
+- 페이지 "구독 사용량": 서버·서비스·요금제·계정·사용량 표.
 
 ## 필요한 것
 
@@ -22,7 +24,8 @@ An AoE plugin that shows server health (CPU, memory, disk, 24 h history) and sub
   "id": "m1", "name": "m1", "status": "ok", "error": null,
   "reading": {"os": "Darwin", "cores": 10, "cpu": 12.5, "memTotal": 17179869184, "memAvailable": 8589934592,
               "disks": [{"mount": "/", "total": 494000000000, "used": 59000000000}]},
-  "history": [{"cpuAvg": 10.1, "memAvg": 50.2, "diskMax": 12.0}],
+  "rates": {"rx": 52000, "tx": 1600000},
+  "history": [{"cpuAvg": 10.1, "memAvg": 50.2, "diskMax": 12.0, "rxRate": 52000, "txRate": 1600000}],
   "providers": [{"toolId": "codex", "label": "Codex",
                  "usage": {"status": "fresh", "plan": "Business", "windows": [{"label": "Weekly", "usedPercent": 15}]}}]
 }]}

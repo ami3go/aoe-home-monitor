@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>구독 사용량</title>
+<style>
+  :root { --bg: #0f1115; --fg: #e6e6e6; --muted: #9aa0a6; --line: #2a2f37; --card: #161a20;
+          --ok: #3fb950; --warn: #d29922; --bad: #f85149; --accent: #58a6ff; --accent2: #d2a8ff; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 16px; background: var(--background, var(--bg)); color: var(--foreground, var(--fg));
+         font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  h2 { font-size: 15px; margin: 24px 0 4px; }
+  .sub { color: var(--muted); font-size: 12px; margin-bottom: 16px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px; }
+  .card.down { border-color: var(--bad); }
+  .head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; }
+  .name { font-weight: 600; }
+  .meta { color: var(--muted); font-size: 12px; }
+  .nums { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin-bottom: 8px; }
+  .nums div { font-size: 12px; color: var(--muted); }
+  .nums b { display: block; font-size: 18px; color: var(--fg); font-variant-numeric: tabular-nums; }
+  .ok { color: var(--ok) !important; } .warn { color: var(--warn) !important; } .bad { color: var(--bad) !important; }
+  svg { width: 100%; height: 34px; display: block; }
+  .label { font-size: 11px; color: var(--muted); margin: 2px 0 6px; display: flex; justify-content: space-between; }
+  .section { font-size: 12px; color: var(--muted); margin: 10px 0 4px; border-top: 1px solid var(--line); padding-top: 8px; }
+  .disk { margin: 6px 0; font-size: 12px; }
+  .disk .row { display: flex; justify-content: space-between; gap: 8px; }
+  .disk .mount { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .bar { height: 6px; background: var(--line); border-radius: 3px; overflow: hidden; margin-top: 3px; }
+  .bar span { display: block; height: 100%; background: var(--ok); }
+  .bar span.warn { background: var(--warn); } .bar span.bad { background: var(--bad); }
+  table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); font-size: 13px; }
+  th { color: var(--muted); font-weight: 500; }
+</style>
+</head>
+<body>
+<h1>구독 사용량</h1>
+<div class="sub" id="sub">불러오는 중…</div>
+<table><thead id="head"></thead><tbody id="rows"></tbody></table>
+<script>
+const PAGE_ID = "subscriptions";
+const NAMES = { codex: "Codex", claude: "Claude", grok: "Grok", antigravity: "Antigravity", kimi: "Kimi", opencode: "OpenCode" };
+const STATUS = { logged_in: "로그인됨 · 사용량 미확인", expired: "토큰 만료", failed: "조회 실패", unknown: "확인 불가" };
+function header(cols) { const tr = el("tr"); for (const c of cols) tr.append(el("th", null, c)); document.getElementById("head").replaceChildren(tr); }
+function render(state) {
+  const rows = document.getElementById("rows"); rows.replaceChildren();
+  if (!state) { document.getElementById("sub").textContent = "아직 측정값이 없습니다."; return; }
+  document.getElementById("sub").textContent = `서버마다 그 서버에 로그인된 계정과 사용량 · 같은 계정이면 사용량을 더하지 않습니다 · 갱신 ${state.updated || "-"}`;
+  if (state.usage && state.usage.length) {
+    header(["서버", "서비스", "요금제", "계정", "사용량"]);
+    for (const host of state.usage) {
+      const providers = host.providers || [];
+      if (!providers.length) { const tr = el("tr"); tr.append(el("td", null, host.host), el("td", "meta", host.error || "로그인된 구독 없음")); rows.append(tr); }
+      for (const p of providers) {
+        const windows = (p.windows || []).filter((w) => typeof w.used === "number");
+        const top = windows.length ? Math.max(...windows.map((w) => w.used)) : null;
+        const tr = el("tr");
+        const cell = el("td", top == null ? (p.status === "expired" || p.status === "failed" ? "bad" : "meta") : level(top, 70, 90),
+          windows.length ? windows.map((w) => `${w.label} ${Math.round(w.used)}%`).join(" · ") : (STATUS[p.status] || p.status));
+        if (p.reason) cell.title = p.reason;
+        tr.append(el("td", null, host.host), el("td", null, NAMES[p.tool] || p.tool), el("td", null, p.plan || "-"), el("td", "meta", p.account || "-"), cell);
+        rows.append(tr);
+      }
+    }
+    return;
+  }
+  header(["서비스", "요금제", "창", "쓰는 서버"]);
+  for (const s of state.subscriptions || []) {
+    const tr = el("tr");
+    tr.append(el("td", null, s.tool), el("td", null, s.plan || "-"),
+      el("td", null, (s.windows || []).map((w) => `${w.label} ${w.usedPercent ?? "?"}%`).join(" · ") || "-"), el("td", "meta", (s.hosts || []).join(", ")));
+    rows.append(tr);
+  }
+}
+</script>
+<script>
+(() => {
+  let next = 0;
+  const pending = new Map();
+  const { port1, port2 } = new MessageChannel();
+  port1.onmessage = ({ data: m }) => {
+    if (m.event === "theme") {
+      for (const [k, v] of Object.entries(m.data.cssVars || {})) document.documentElement.style.setProperty(k, String(v));
+      return;
+    }
+    if (m.event) return;
+    const done = pending.get(m.id); pending.delete(m.id);
+    if (done) done(m);
+  };
+  const request = (msg, post) => {
+    const id = ++next;
+    const reply = new Promise((resolve, reject) => pending.set(id, (m) => (m.error ? reject(m.error) : resolve(m.result))));
+    post({ aoeBridge: 1, id, ...msg });
+    return reply;
+  };
+  const call = (method, params) => request({ method, params }, (m) => port1.postMessage(m));
+  window.el = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; };
+  window.level = (v, warn = 80, bad = 92) => v == null ? "" : v >= bad ? "bad" : v >= warn ? "warn" : "ok";
+  window.pct = (v) => v == null ? "-" : `${Math.round(v)}%`;
+  async function load() {
+    try {
+      const body = await call("plugins.uiState");
+      const entries = Array.isArray(body) ? body : body.entries || [];
+      const mine = entries.find((e) => e.plugin_id === "dev.hyunwook.home-monitor" && e.slot === "page" && e.id === PAGE_ID);
+      render(mine ? mine.payload : null);
+    } catch (err) {
+      document.getElementById("sub").textContent = `불러오지 못했습니다: ${err.message || err.code || err}`;
+    }
+  }
+  request({ method: "ready", params: { nonce: location.hash.slice(1) } }, (m) => parent.postMessage(m, "*", [port2])).then(load);
+  setInterval(load, 30000);
+})();
+</script>
+</body>
+</html>
