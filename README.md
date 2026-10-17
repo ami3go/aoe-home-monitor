@@ -52,6 +52,7 @@ aoe serve --restart
 | `source_url` | `http://127.0.0.1:4317/api/dashboard?range=24h` | 수집기 JSON 주소 |
 | `usage_command` | (비움) | 서버별 구독 사용량 JSON을 출력하는 명령(선택). `{"hosts": [{"host", "providers": [{"tool", "plan", "account", "status", "windows": [{"label", "used"}]}]}]}`. 넣으면 서버마다 로그인된 계정과 사용량을 보여줍니다 |
 | `vpn_command` | (비움) | VPN 상태를 출력하는 명령(선택). `state: CONNECTED (이름)`, `started:`, `expires:`, `route IP -> 인터페이스` 줄을 읽어 대시보드 서버 상태 맨 위에 보여줍니다 |
+| `wake_hosts` / `wake_command` | (비움) | 꺼진 서버 칸에 "켜기 (WOL)" 버튼을 보일 서버 id 목록과, `{host}` 자리에 id가 들어가는 켜기 명령(예: Wake-on-LAN 도구). 목록에 없는 서버는 거부합니다 |
 | `refresh_secs` | 60 | 갱신 주기(초) |
 
 ## 테스트

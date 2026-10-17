@@ -228,7 +228,16 @@ function serversPanel(entries) {
         const bar = el("div", "mini"); const f = el("span", level(d.pct, 85, 95)); f.style.width = `${Math.min(100, d.pct || 0)}%`; bar.append(f);
         t.append(kv, bar);
       }
-    } else t.append(el("div", "muted", h.error || ""));
+    } else {
+      t.append(el("div", "muted", h.error || ""));
+      if ((mon.wakeable || []).includes(h.id)) {
+        const b = el("button", "chip on", "켜기 (WOL)");
+        b.onclick = () => { b.disabled = true; b.textContent = "켜는 중…"; bridgeCall("action", { method: "wake", params: { host: h.id } }).catch(() => {}); };
+        t.append(b);
+      }
+    }
+    const note = (mon.wakeNotes || {})[h.id];
+    if (note) t.append(el("div", "muted", note));
     tiles.append(t);
   }
   body.append(tiles);

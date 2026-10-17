@@ -104,6 +104,10 @@ def reader() -> None:
             params = msg.get("params") or {}
             params = params.get("params", params) if isinstance(params, dict) else {}
             threading.Thread(target=lambda: save_layout(params), daemon=True).start()
+        if tail == "wake":
+            params = msg.get("params") or {}
+            params = params.get("params", params) if isinstance(params, dict) else {}
+            threading.Thread(target=lambda: wake_host(str(params.get("host") or "")), daemon=True).start()
         if tail == "history_select":
             params = msg.get("params") or {}
             params = params.get("params", params) if isinstance(params, dict) else {}
@@ -218,6 +222,28 @@ def fetch_usage(command: str) -> dict[str, Any] | None:
     except Exception as exc:  # noqa: BLE001
         log(f"usage command: {exc}")
         return None
+
+
+_wake_notes: dict[str, str] = {}
+
+
+def wake_host(host: str) -> None:
+    """Run the configured wake command for an allow-listed host (dashboard "켜기" button)."""
+    allowed = {h.strip() for h in setting("wake_hosts", []) or [] if isinstance(h, str)}
+    template = str(setting("wake_command", "") or "")
+    if host not in allowed or "{host}" not in template:
+        log(f"wake refused for {host!r}")
+        return
+    _wake_notes[host] = "켜는 중… " + datetime.now(timezone.utc).astimezone().strftime("%H:%M:%S")
+    _wake.set()
+    try:
+        args = [os.path.expanduser(a).replace("{host}", host) for a in shlex.split(template)]
+        done = subprocess.run(args, capture_output=True, text=True, timeout=300)
+        _wake_notes[host] = (done.stdout or done.stderr).strip().splitlines()[-1][:120] if (done.stdout or done.stderr) \
+            else f"종료 코드 {done.returncode}"
+    except Exception as exc:  # noqa: BLE001
+        _wake_notes[host] = f"실패: {exc}"[:120]
+    _wake.set()
 
 
 def fetch_vpn(command: str) -> dict[str, Any] | None:
@@ -355,7 +381,9 @@ def build(data: dict[str, Any], usage: dict[str, Any] | None = None,
                           "footer": {"text": f"갱신 {now}", "value": footer_value, "tone": "neutral"}}
     return {
         "servers": servers, "subscriptions": subscriptions_pane,
-        "monitor": {"observedAt": data.get("observedAt"), "updated": now, "hosts": hosts, "vpn": vpn},
+        "monitor": {"observedAt": data.get("observedAt"), "updated": now, "hosts": hosts, "vpn": vpn,
+                    "wakeable": [h for h in setting("wake_hosts", []) or [] if isinstance(h, str)],
+                    "wakeNotes": dict(_wake_notes)},
         "subscriptions_page": {"updated": now, "subscriptions": subs, "usage": (usage or {}).get("hosts")},
     }
 

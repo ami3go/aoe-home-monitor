@@ -1,7 +1,7 @@
 # Home Monitor: server health and subscription usage for the Home AI fleet, in the AoE dashboard.
 id = "dev.hyunwook.home-monitor"
 name = "Home Monitor"
-version = "0.7.0"
+version = "0.8.0"
 api_version = 16
 aoe_version = ">=1.20.0, <2.0.0"
 description = "홈서버 전체의 CPU·메모리·디스크 상태와 구독 사용량을 대시보드 패널과 페이지로 보여줍니다."
@@ -31,6 +31,19 @@ default = ""
 key = "vpn_command"
 label = "VPN 상태 명령 (선택)"
 description = "state: CONNECTED (이름) / started: / expires: / route IP -> 인터페이스 줄을 출력하는 명령. 연결되면 0으로 끝납니다."
+type = "string"
+default = ""
+
+[[settings]]
+key = "wake_hosts"
+label = "켜기 버튼을 보일 서버"
+description = "수집기의 서버 id. 꺼져 있으면 대시보드에 켜기 버튼이 생깁니다."
+type = "string_list"
+
+[[settings]]
+key = "wake_command"
+label = "켜기 명령"
+description = "{host} 자리에 서버 id가 들어갑니다. 예: ~/.local/bin/home-wake {host}"
 type = "string"
 default = ""
 
