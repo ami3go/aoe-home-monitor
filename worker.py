@@ -16,6 +16,7 @@ import sys
 import threading
 import urllib.request
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 RPC_TIMEOUT = 10.0
@@ -30,6 +31,30 @@ _out_lock = threading.Lock()
 _wake = threading.Event()
 _history = {"host": None, "range": "7d"}
 RANGE_DAYS = {"24h": 1, "7d": 7, "30d": 30, "90d": 90}
+# Outside the plugin directory so updates keep it (fs.write).
+LAYOUT_FILE = Path.home() / ".cache/home-ai/aoe-dashboard-layout.json"
+PANEL_IDS = ("sessions", "servers", "subs")
+
+
+def load_layout() -> dict[str, Any]:
+    try:
+        return json.loads(LAYOUT_FILE.read_text())
+    except (OSError, ValueError):
+        return {}
+
+
+def save_layout(params: dict[str, Any]) -> None:
+    """Dashboard panel order, hidden panels, wide panels and column count, shared by every viewer."""
+    order = [p for p in params.get("order") or [] if p in PANEL_IDS]
+    layout = {"order": order + [p for p in PANEL_IDS if p not in order],
+              "hidden": [p for p in params.get("hidden") or [] if p in PANEL_IDS],
+              "wide": [p for p in params.get("wide") or [] if p in PANEL_IDS],
+              "cols": params.get("cols") if params.get("cols") in ("auto", "1", "2", "3") else "auto"}
+    LAYOUT_FILE.parent.mkdir(parents=True, exist_ok=True)
+    tmp = LAYOUT_FILE.with_suffix(".tmp")
+    tmp.write_text(json.dumps(layout))
+    os.replace(tmp, LAYOUT_FILE)
+    call("ui.state.set", {"slot": "page", "id": "dashboard", "payload": {"layout": layout}})
 
 
 def log(msg: str) -> None:
@@ -75,6 +100,10 @@ def reader() -> None:
             continue
         method = str(msg.get("method", ""))
         tail = method.rsplit(".", 1)[-1]
+        if tail == "layout_save":
+            params = msg.get("params") or {}
+            params = params.get("params", params) if isinstance(params, dict) else {}
+            threading.Thread(target=lambda: save_layout(params), daemon=True).start()
         if tail == "history_select":
             params = msg.get("params") or {}
             params = params.get("params", params) if isinstance(params, dict) else {}
@@ -247,7 +276,9 @@ def host_block(s: dict[str, Any]) -> dict[str, Any]:
             "value_tone": head_tone, "children": children}
 
 
-DASHBOARD_LINK = {"kind": "action", "label": "전체 대시보드 열기", "href": "/plugins/dev.hyunwook.home-monitor/dashboard", "icon": "layout-dashboard", "variant": "primary"}
+DASHBOARD_LINK = {"kind": "action", "label": "대시보드 열기", "href": "/plugins/dev.hyunwook.home-monitor/dashboard",
+                  "icon": "layout-dashboard", "variant": "primary"}
+HOME_PANE = {"title": "대시보드", "icon": "layout-dashboard", "blocks": [DASHBOARD_LINK]}
 
 
 def build(data: dict[str, Any], usage: dict[str, Any] | None = None) -> dict[str, dict[str, Any]]:
@@ -358,8 +389,9 @@ def refresh() -> int:
                                  "footer": {"text": "갱신 실패", "tone": "danger"}},
                "monitor": {"error": str(exc), "hosts": []},
                "subscriptions_page": {"error": str(exc), "subscriptions": [], "usage": None}}
-    call("ui.state.set", {"slot": "home-pane", "id": "servers", "payload": out["servers"]})
-    call("ui.state.set", {"slot": "home-pane", "id": "subscriptions", "payload": out["subscriptions"]})
+    # The home screen only links to the dashboard page; the panes' content lives in the pages.
+    call("ui.state.set", {"slot": "home-pane", "id": "servers", "payload": HOME_PANE})
+    call("ui.state.set", {"slot": "page", "id": "dashboard", "payload": {"layout": load_layout()}})
     call("ui.state.set", {"slot": "page", "id": "monitor", "payload": out["monitor"]})
     call("ui.state.set", {"slot": "page", "id": "subscriptions", "payload": out["subscriptions_page"]})
     push_history()

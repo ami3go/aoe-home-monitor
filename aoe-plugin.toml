@@ -1,13 +1,13 @@
 # Home Monitor: server health and subscription usage for the Home AI fleet, in the AoE dashboard.
 id = "dev.hyunwook.home-monitor"
 name = "Home Monitor"
-version = "0.5.0"
+version = "0.6.0"
 api_version = 16
 aoe_version = ">=1.20.0, <2.0.0"
 description = "홈서버 전체의 CPU·메모리·디스크 상태와 구독 사용량을 대시보드 패널과 페이지로 보여줍니다."
 
-# net: reads the collector's dashboard JSON. process.spawn: optional usage_command. session.read: the page reads its pushed state through the bridge.
-capabilities = ["runtime.worker", "net", "session.read", "process.spawn"]
+# net: reads the collector's dashboard JSON. process.spawn: optional usage_command. fs.write: dashboard layout in ~/.cache/home-ai. session.read: the page reads its pushed state through the bridge.
+capabilities = ["runtime.worker", "net", "session.read", "process.spawn", "fs.write"]
 
 [[commands]]
 id = "refresh"
@@ -38,10 +38,6 @@ max = 3600
 [[ui]]
 slot = "home-pane"
 id = "servers"
-
-[[ui]]
-slot = "home-pane"
-id = "subscriptions"
 
 [[ui]]
 slot = "page"

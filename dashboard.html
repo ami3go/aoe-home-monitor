@@ -53,6 +53,13 @@
   .panel { background: var(--card); border: 1px solid var(--line); border-radius: 10px; display: flex; flex-direction: column;
            max-height: calc(100vh - 90px); min-height: 160px; }
   .panel.fit { max-height: none; }
+  .panel.wide { grid-column: span 2; }
+  .board.cols-1 .panel.wide { grid-column: auto; }
+  @media (max-width: 820px) { .panel.wide { grid-column: auto; } }
+  .panel header { cursor: grab; user-select: none; }
+  .panel.dragging { opacity: .45; }
+  .panel.over { outline: 2px dashed var(--accent); outline-offset: 2px; }
+  .grip { color: var(--muted); margin-right: 6px; }
   .panel header { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; border-bottom: 1px solid var(--line); gap: 8px; }
   .panel header b { font-size: 14px; }
   .panel .body { overflow: auto; padding: 8px 12px 12px; }
@@ -89,8 +96,18 @@ const COLS = [["auto", "자동"], ["1", "1"], ["2", "2"], ["3", "3"]];
 const STATUS_TONE = { "실행 중": "", "입력 대기": "warn", "오류": "bad", "유휴": "muted" };
 const NAMES = { codex: "Codex", claude: "Claude", grok: "Grok", antigravity: "Antigravity", kimi: "Kimi", opencode: "OpenCode" };
 const prefs = (() => { try { return JSON.parse(localStorage.getItem("aoe-home-dashboard") || "{}"); } catch { return {}; } })();
-prefs.hidden = prefs.hidden || []; prefs.cols = prefs.cols || "auto";
-const save = () => { try { localStorage.setItem("aoe-home-dashboard", JSON.stringify(prefs)); } catch {} };
+const normalize = () => {
+  prefs.hidden = prefs.hidden || []; prefs.wide = prefs.wide || []; prefs.cols = prefs.cols || "auto";
+  const ids = PANELS.map((p) => p[0]); prefs.order = (prefs.order || []).filter((x) => ids.includes(x));
+  for (const id of ids) if (!prefs.order.includes(id)) prefs.order.push(id);
+};
+normalize();
+let serverLayoutApplied = false;
+// Saved twice: in this browser when allowed, and by the plugin worker so every browser gets the same layout.
+const save = () => {
+  try { localStorage.setItem("aoe-home-dashboard", JSON.stringify(prefs)); } catch {}
+  bridgeCall("action", { method: "layout_save", params: { order: prefs.order, hidden: prefs.hidden, wide: prefs.wide, cols: prefs.cols } }).catch(() => {});
+};
 let last = [];
 function bytes(v, rate) {
   if (v == null) return "-";
@@ -112,14 +129,35 @@ function chips() {
     c.append(b, document.createTextNode(" "));
   }
 }
+let dragging = null;
 function panel(id, title, right) {
-  const p = el("section", "panel"); p.dataset.id = id;
-  const h = el("header"); h.append(el("b", null, title), el("span", "muted", right || ""));
+  const p = el("section", "panel" + (prefs.wide.includes(id) ? " wide" : "")); p.dataset.id = id;
+  const h = el("header"); h.draggable = true; h.title = "끌어서 순서를 바꿉니다";
+  const grip = el("span", "grip", "⠿");
+  const wide = el("button", "chip", prefs.wide.includes(id) ? "좁게" : "넓게");
+  wide.onclick = (e) => { e.stopPropagation(); prefs.wide = prefs.wide.includes(id) ? prefs.wide.filter((x) => x !== id) : [...prefs.wide, id]; save(); render(last); };
+  const left = el("span"); left.append(grip, el("b", null, title));
+  const tools = el("span"); tools.append(el("span", "muted", (right || "") + " "), wide);
+  h.append(left, tools);
+  h.addEventListener("dragstart", (e) => { dragging = id; p.classList.add("dragging"); e.dataTransfer.effectAllowed = "move"; try { e.dataTransfer.setData("text/plain", id); } catch {} });
+  h.addEventListener("dragend", () => { dragging = null; p.classList.remove("dragging"); document.querySelectorAll(".panel.over").forEach((x) => x.classList.remove("over")); });
+  p.addEventListener("dragover", (e) => { if (dragging && dragging !== id) { e.preventDefault(); p.classList.add("over"); } });
+  p.addEventListener("dragleave", () => p.classList.remove("over"));
+  p.addEventListener("drop", (e) => {
+    e.preventDefault(); p.classList.remove("over");
+    if (!dragging || dragging === id) return;
+    const order = prefs.order.filter((x) => x !== dragging);
+    const rect = p.getBoundingClientRect();
+    const after = (e.clientY - rect.top > rect.height / 2) || (e.clientX - rect.left > rect.width / 2 && rect.height < 400);
+    order.splice(order.indexOf(id) + (after ? 1 : 0), 0, dragging);
+    prefs.order = order; save(); render(last);
+  });
   const body = el("div", "body"); p.append(h, body);
   return [p, body];
 }
 function sessionsPanel(entries) {
-  const fleet = entries.find((e) => e.plugin_id === "dev.hyunwook.fleet" && e.slot === "home-pane");
+  const fleet = entries.find((e) => e.plugin_id === "dev.hyunwook.fleet" && e.slot === "page" && e.id === "sessions")
+    || entries.find((e) => e.plugin_id === "dev.hyunwook.fleet" && e.slot === "home-pane");
   const sections = (fleet?.payload?.blocks || []).filter((b) => b.kind === "section");
   const total = sections.reduce((n, s) => n + (s.children || []).filter((c) => c.kind === "row").length, 0);
   const [p, body] = panel("sessions", "세션", fleet ? `${fleet.payload.footer?.value || ""} · 세션 ${total}개` : "Fleet 플러그인 없음");
@@ -197,9 +235,13 @@ function render(entries) {
   const board = document.getElementById("board");
   board.className = "board" + (prefs.cols === "auto" ? "" : ` cols-${prefs.cols}`);
   board.replaceChildren();
+  if (!serverLayoutApplied) {
+    const saved = last.find((e) => e.plugin_id === "dev.hyunwook.home-monitor" && e.slot === "page" && e.id === "dashboard")?.payload?.layout;
+    if (saved && saved.order) { Object.assign(prefs, saved); normalize(); serverLayoutApplied = true; chips(); }
+  }
   const build = { sessions: sessionsPanel, servers: serversPanel, subs: subsPanel };
-  for (const [id] of PANELS) if (!prefs.hidden.includes(id)) board.append(build[id](last));
-  document.getElementById("sub").textContent = `15초마다 갱신 · 창 너비에 맞춰 배치 · 패널 안에서 스크롤`;
+  for (const id of prefs.order) if (!prefs.hidden.includes(id)) board.append(build[id](last));
+  document.getElementById("sub").textContent = `15초마다 갱신 · 제목을 끌어 순서 변경 · 넓게로 두 칸 차지`;
 }
 </script>
 <script>
