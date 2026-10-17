@@ -444,6 +444,74 @@ DASHBOARD_LINK = {"kind": "action", "label": "대시보드 열기", "href": "/pl
 HOME_PANE = {"title": "대시보드", "icon": "layout-dashboard", "blocks": [DASHBOARD_LINK]}
 
 
+OS_ICON = {"darwin": "apple", "linux": "terminal", "windows": "grid-2x2"}  # lucide has no penguin or Windows logo
+OS_NAME = {"darwin": "macOS", "linux": "Linux", "windows": "Windows"}
+DASHBOARD_HREF = "/plugins/dev.hyunwook.home-monitor/dashboard"
+
+
+def status_bar(hosts: list[dict[str, Any]], usage: dict[str, Any] | None,
+               vpn: dict[str, Any] | None) -> dict[str, Any]:
+    """Chips for the bar above the session view's terminal/diff panel: hosts with a subscription login get one chip
+    each, the other hosts one summary chip, then subscription usage (highest first, click for the next) and VPN."""
+    providers: dict[str, list[dict[str, Any]]] = {}
+    for h in (usage or {}).get("hosts") or []:
+        providers[str(h.get("host"))] = h.get("providers") or []
+    items: list[dict[str, Any]] = []
+    rest = []
+    for h in hosts:
+        if not providers.get(h["name"]):
+            rest.append(h)
+            continue
+        os_key = str(h.get("os") or "").lower()
+        worst = max((v for v in (h["cpu"], h["mem"], h["disk"]) if v is not None), default=None)
+        lines = [f"{h['name']} ({OS_NAME.get(os_key, h.get('os') or '?')})"]
+        if h["up"]:
+            lines.append(f"CPU {h['cpu'] or 0:.0f}% · 메모리 {h['mem'] or 0:.0f}% · 디스크 최대 {h['disk'] or 0:.0f}%")
+        else:
+            lines.append("연결 끊김" + (f": {h['error']}" if h.get("error") else ""))
+        for pr in providers[h["name"]]:
+            used = [w for w in pr.get("windows") or [] if isinstance(w.get("used"), (int, float))]
+            lines.append(f"{TOOL_NAME.get(pr.get('tool'), pr.get('tool'))}: " +
+                         (" · ".join(f"{w.get('label')} {w['used']:.0f}%" for w in used) or "미확인"))
+        items.append({"text": f"{h['cpu'] or 0:.0f}%" if h["up"] else "꺼짐",
+                      "icon": OS_ICON.get(os_key, "server"), "tone": tone(worst) if h["up"] else "danger",
+                      "group": "서버", "tooltip": "\n".join(lines + ["(누르면 다음 서버)"]), "href": DASHBOARD_HREF})
+    if rest:
+        up = sum(1 for h in rest if h["up"])
+        worst = max((v for h in rest if h["up"] for v in (h["cpu"], h["mem"], h["disk"]) if v is not None), default=None)
+        items.append({"text": f"{up}/{len(rest)}", "icon": "server", "group": "서버",
+                      "tone": "danger" if up < len(rest) else tone(worst),
+                      "tooltip": "다른 서버\n" + "\n".join(f"{h['name']}: " + (f"CPU {h['cpu'] or 0:.0f}% · 메모리 {h['mem'] or 0:.0f}%"
+                                                                if h["up"] else "연결 끊김") for h in rest),
+                      "href": DASHBOARD_HREF})
+    # The bar above the right panel is narrow, so hosts and subscriptions are two chips that cycle on click; the
+    # first host chip summarises the whole fleet.
+    if items:
+        up = sum(1 for h in hosts if h["up"])
+        worst_host = max(hosts, key=lambda h: (not h["up"], max((v for v in (h["cpu"], h["mem"], h["disk"])
+                                                                if v is not None), default=0)))
+        worst = max((v for h in hosts if h["up"] for v in (h["cpu"], h["mem"], h["disk"]) if v is not None), default=None)
+        items.insert(0, {"text": f"{up}/{len(hosts)}", "icon": "server", "group": "서버",
+                         "tone": "danger" if up < len(hosts) else tone(worst), "href": DASHBOARD_HREF,
+                         "tooltip": "\n".join(f"{h['name']}: " + (f"CPU {h['cpu'] or 0:.0f}% · 메모리 {h['mem'] or 0:.0f}% · "
+                                                                  f"디스크 {h['disk'] or 0:.0f}%" if h["up"] else "연결 끊김")
+                                              for h in hosts) + f"\n가장 바쁜 서버: {worst_host['name']}\n(누르면 서버별 CPU, 마우스를 올리면 자세히)"})
+    windows = []
+    for host, prs in providers.items():
+        for pr in prs:
+            used = [w for w in pr.get("windows") or [] if isinstance(w.get("used"), (int, float))]
+            if used:
+                top = max(used, key=lambda w: w["used"])
+                windows.append((top["used"], host, TOOL_NAME.get(pr.get("tool"), pr.get("tool")), top.get("label")))
+    for used, host, tool, label in sorted(windows, key=lambda w: -w[0]):
+        items.append({"text": f"{used:.0f}%", "icon": "gauge", "tone": tone(used, 70, 90), "group": "구독",
+                      "tooltip": f"{host} {tool} {label} {used:.0f}% (누르면 다음 구독)", "href": DASHBOARD_HREF})
+    if vpn and vpn.get("state") == "CONNECTED":
+        items.append({"icon": "shield-check", "tone": "info", "href": DASHBOARD_HREF,
+                      "tooltip": "회사 VPN 연결됨" + (f" · {vpn['expires']} 자동 해제" if vpn.get("expires") else "")})
+    return {"items": items}
+
+
 def build(data: dict[str, Any], usage: dict[str, Any] | None = None,
           vpn: dict[str, Any] | None = None, power: dict[str, Any] | None = None) -> dict[str, dict[str, Any]]:
     """Two home panes and two pages: server health, and subscription usage."""
@@ -497,6 +565,7 @@ def build(data: dict[str, Any], usage: dict[str, Any] | None = None,
                     "vpnNote": _notes.get("vpn", "")},
         "subscriptions_page": {"updated": now, "subscriptions": subs, "usage": (usage or {}).get("hosts")},
         "tools": _tools["data"],
+        "bar": status_bar(hosts, usage, vpn),
     }
 
 
@@ -565,6 +634,7 @@ def refresh() -> int:
     call("ui.state.set", {"slot": "page", "id": "dashboard", "payload": {"layout": load_layout()}})
     call("ui.state.set", {"slot": "page", "id": "monitor", "payload": out["monitor"]})
     call("ui.state.set", {"slot": "page", "id": "subscriptions", "payload": out["subscriptions_page"]})
+    call("ui.state.set", {"slot": "status-bar", "id": "fleet", "payload": out.get("bar") or {"items": []}})
     if out.get("tools") is not None:
         call("ui.state.set", {"slot": "page", "id": "tools", "payload": out["tools"]})
     push_history()

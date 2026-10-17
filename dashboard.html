@@ -96,6 +96,15 @@
   .pill.warn { border-color: var(--warn); color: var(--warn); }
   .pill.skill { color: var(--muted); }
   details summary { cursor: pointer; font-size: 12px; }
+  /* Host names: OS logo + bold coloured name so each server stands out from the numbers below it. */
+  .os-darwin { --hc: #8b5cf6; } .os-linux { --hc: #d97706; } .os-windows { --hc: #0ea5e9; } .os-unknown { --hc: var(--muted); }
+  .hname { display: inline-flex; align-items: center; gap: 7px; font-size: 15px; font-weight: 700; color: var(--hc, var(--fg));
+           letter-spacing: 0; text-transform: none; }
+  .hname svg { width: 18px; height: 18px; flex: none; display: inline-block; }
+  .host h3 { align-items: center; text-transform: none; letter-spacing: 0; margin-bottom: 6px; padding-bottom: 4px;
+             border-bottom: 2px solid var(--hc, var(--line)); }
+  .tile[class*="os-"] { border-left: 4px solid var(--hc); }
+  .tile .t { align-items: center; }
 </style>
 <div class="bar-top">
   <h1 style="margin:0">대시보드</h1><span class="sub" id="sub" style="margin:0">불러오는 중…</span><span class="grow"></span>
@@ -177,9 +186,8 @@ function sessionsPanel(entries) {
   const alert = (fleet?.payload?.blocks || []).find((b) => b.kind === "callout");
   if (alert) body.append(el("div", "row warn", `${alert.title} — ${alert.detail || ""}`));
   for (const s of sections) {
-    const box = el("div", "host"); const h = el("h3");
-    h.append(el("span", null, s.title), el("span", s.value_tone === "danger" ? "bad" : null, s.value || (s.badges || []).map((b) => b.text).join(" · ")));
-    box.append(h);
+    const box = el("div", "host");
+    box.append(hostHead(s.title, null, s.value || (s.badges || []).map((b) => b.text).join(" · "), s.value_tone === "danger" ? "bad" : "muted"));
     for (const c of s.children || []) {
       if (c.kind === "note") { box.append(el("div", "row muted", c.text)); continue; }
       const r = el("div", c.href ? "row link" : "row");
@@ -282,8 +290,8 @@ function serversPanel(entries) {
   }
   const tiles = el("div", "tiles");
   for (const h of hosts) {
-    const t = el("div", h.up ? "tile" : "tile down");
-    const head = el("div", "t"); head.append(el("span", null, h.name), el("span", h.up ? "muted" : "bad", h.up ? `${h.cores || "?"}코어` : "연결 끊김"));
+    const t = el("div", (h.up ? "tile" : "tile down") + ` os-${osKey(h.name, h.os)}`);
+    const head = el("div", "t"); head.append(hostLabel(h.name, h.os), el("span", h.up ? "muted" : "bad", h.up ? `${h.cores || "?"}코어` : "연결 끊김"));
     t.append(head);
     if (h.up) {
       const amounts = { CPU: h.load != null ? `부하 ${Number(h.load).toFixed(1)} / ${h.cores || "?"}코어` : `${h.cores || "?"}코어`,
@@ -326,7 +334,7 @@ function subsPanel(entries) {
   const [p, body] = panel("subs", "구독 상태", s ? `계정 ${hosts.reduce((n, h) => n + (h.providers || []).length, 0)}개 · ${s.updated || ""}` : "");
   for (const host of hosts) {
     if (!(host.providers || []).length) continue;  // hosts without any subscription login (or unreachable)
-    const box = el("div", "host"); box.append(el("h3", null, host.host));
+    const box = el("div", "host"); box.append(hostHead(host.host));
     for (const pr of host.providers || []) {
       const w = (pr.windows || []).filter((x) => typeof x.used === "number");
       const top = w.length ? Math.max(...w.map((x) => x.used)) : null;
@@ -341,6 +349,30 @@ function subsPanel(entries) {
   if (!hosts.length) body.append(el("div", "muted", "서버별 구독 정보가 없습니다 (usage_command 설정 필요)."));
   return p;
 }
+const OS_ICON = {
+  darwin: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12.15 6.9c-.95 0-2.42-1.08-3.96-1.04-2.04.03-3.91 1.18-4.96 3.01-2.12 3.68-.55 9.1 1.52 12.09 1.01 1.45 2.2 3.09 3.79 3.04 1.52-.07 2.09-.99 3.94-.99 1.83 0 2.35.99 3.96.95 1.64-.03 2.68-1.48 3.68-2.95 1.16-1.69 1.64-3.33 1.66-3.42-.04-.01-3.18-1.22-3.22-4.86-.03-3.04 2.48-4.49 2.6-4.56-1.43-2.09-3.62-2.32-4.39-2.38-2-.16-3.68 1.09-4.62 1.09zm3.38-3.07c.84-1.01 1.4-2.43 1.25-3.83-1.21.05-2.66.8-3.53 1.82-.78.9-1.45 2.34-1.27 3.71 1.34.1 2.71-.69 3.55-1.7"/></svg>',
+  linux: '<svg viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="12" cy="13" rx="6.6" ry="9" fill="#1b1f24" stroke="#9ca3af" stroke-width=".8"/><ellipse cx="12" cy="15.2" rx="4.3" ry="6" fill="#f3f4f6"/><circle cx="10" cy="7.6" r="1.25" fill="#fff"/><circle cx="14" cy="7.6" r="1.25" fill="#fff"/><circle cx="10.3" cy="7.8" r=".55" fill="#111"/><circle cx="13.7" cy="7.8" r=".55" fill="#111"/><path d="M10.2 9.6h3.6L12 11.6z" fill="#f59e0b"/><ellipse cx="8.4" cy="22" rx="2.6" ry="1.2" fill="#f59e0b"/><ellipse cx="15.6" cy="22" rx="2.6" ry="1.2" fill="#f59e0b"/></svg>',
+  windows: '<svg viewBox="0 0 24 24" aria-hidden="true"><g fill="currentColor"><rect x="2" y="2" width="9.5" height="9.5"/><rect x="12.5" y="2" width="9.5" height="9.5"/><rect x="2" y="12.5" width="9.5" height="9.5"/><rect x="12.5" y="12.5" width="9.5" height="9.5"/></g></svg>',
+};
+window.HOST_OS = {};
+function osKey(name, os) {
+  const key = String(name || "").toLowerCase();
+  const v = String(os || HOST_OS[key] || HOST_OS[key.split(/[\s(·]/)[0]] || "").toLowerCase();
+  return v.startsWith("darwin") || v.startsWith("mac") ? "darwin" : v.startsWith("linux") ? "linux" : v.startsWith("win") ? "windows" : "unknown";
+}
+function hostLabel(name, os) {
+  const k = osKey(name, os);
+  const s = el("span", `hname os-${k}`);
+  s.title = { darwin: "macOS", linux: "Linux", windows: "Windows" }[k] || "";
+  if (OS_ICON[k]) s.insertAdjacentHTML("afterbegin", OS_ICON[k]);
+  s.append(document.createTextNode(name || "?"));
+  return s;
+}
+function hostHead(name, os, right, rightCls) {
+  const h = el("h3", `os-${osKey(name, os)}`); h.append(hostLabel(name, os));
+  if (right != null) h.append(el("span", rightCls || "muted", right));
+  return h;
+}
 const CLI_NAMES = { claude: "Claude", codex: "Codex", grok: "Grok", agy: "Antigravity" };
 function toolsPanel(entries) {
   const data = entries.find((e) => e.plugin_id === "dev.hyunwook.home-monitor" && e.slot === "page" && e.id === "tools")?.payload;
@@ -348,7 +380,7 @@ function toolsPanel(entries) {
   const [p, body] = panel("tools", "도구 (MCP·스킬)", data ? `${(data.observed || "").slice(11, 16)} UTC 기준` : "수집 중");
   if (data?.error) body.append(el("div", "bad", data.error));
   for (const h of hosts) {
-    const box = el("div", "host"); box.append(el("h3", null, h.host));
+    const box = el("div", "host"); box.append(hostHead(h.host));
     for (const [cli, v] of Object.entries(h.clis)) {
       const row = el("div", "tool-row");
       const head = el("div", "kv"); head.append(el("b", null, CLI_NAMES[cli] || cli), el("span", "amount", `MCP ${v.mcp.length} · 스킬 ${v.skills.length}`));
@@ -368,6 +400,8 @@ function toolsPanel(entries) {
 }
 function render(entries) {
   last = entries || [];
+  const monHosts = last.find((e) => e.plugin_id === "dev.hyunwook.home-monitor" && e.slot === "page" && e.id === "monitor")?.payload?.hosts || [];
+  for (const h of monHosts) if (h.os) { HOST_OS[String(h.name).toLowerCase()] = h.os; HOST_OS[String(h.id).toLowerCase()] = h.os; }
   chips();
   const board = document.getElementById("board");
   board.className = "board" + (prefs.cols === "auto" ? "" : ` cols-${prefs.cols}`);
