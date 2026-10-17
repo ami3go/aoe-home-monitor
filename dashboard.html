@@ -76,7 +76,11 @@
   .tile.down { border-color: var(--bad); }
   .tile .t { display: flex; justify-content: space-between; font-weight: 600; font-size: 13px; margin-bottom: 4px; }
   .kv { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); }
-  .kv b { color: var(--fg); font-weight: 600; }
+  .kv { gap: 6px; align-items: baseline; }
+  .kv b { color: var(--fg); font-weight: 600; min-width: 34px; text-align: right; }
+  .kv .amount { margin-left: auto; color: var(--muted); font-size: 11px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .mountname { font-size: 12px; color: var(--muted); margin-top: 4px; word-break: break-all; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .mountname + .kv .amount { margin-left: 0; }
   .mini { height: 5px; background: var(--line); border-radius: 3px; overflow: hidden; margin: 2px 0 5px; }
   .mini span { display: block; height: 100%; background: var(--ok); }
   .mini span.warn { background: var(--warn); } .mini span.bad { background: var(--bad); }
@@ -192,14 +196,18 @@ function serversPanel(entries) {
     const head = el("div", "t"); head.append(el("span", null, h.name), el("span", h.up ? "muted" : "bad", h.up ? `${h.cores || "?"}코어` : "연결 끊김"));
     t.append(head);
     if (h.up) {
+      const amounts = { CPU: h.load != null ? `부하 ${Number(h.load).toFixed(1)} / ${h.cores || "?"}코어` : `${h.cores || "?"}코어`,
+                        "메모리": h.memTotal ? `${bytes(h.memUsed)} / ${bytes(h.memTotal)}` : "" };
       for (const [label, v] of [["CPU", h.cpu], ["메모리", h.mem]]) {
-        const kv = el("div", "kv"); kv.append(el("span", null, label), el("b", level(v), pct(v)));
+        const kv = el("div", "kv"); const val = el("b", level(v), pct(v));
+        kv.append(el("span", null, label), el("span", "amount", amounts[label]), val);
         const bar = el("div", "mini"); const f = el("span", level(v)); f.style.width = `${Math.min(100, v || 0)}%`; bar.append(f);
         t.append(kv, bar);
       }
       const net = el("div", "kv"); net.append(el("span", null, "네트워크"), el("b", null, `↓${bytes(h.rx, true)} ↑${bytes(h.tx, true)}`)); t.append(net);
       for (const d of h.disks || []) {
-        const kv = el("div", "kv"); kv.append(el("span", null, d.mount), el("b", level(d.pct, 85, 95), pct(d.pct)));
+        t.append(el("div", "mountname", d.mount));
+        const kv = el("div", "kv"); kv.append(el("span", "amount", `${bytes(d.used)} / ${bytes(d.total)}`), el("b", level(d.pct, 85, 95), pct(d.pct)));
         const bar = el("div", "mini"); const f = el("span", level(d.pct, 85, 95)); f.style.width = `${Math.min(100, d.pct || 0)}%`; bar.append(f);
         t.append(kv, bar);
       }

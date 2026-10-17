@@ -160,6 +160,9 @@ def summarize(host: dict[str, Any]) -> dict[str, Any]:
         "error": host.get("error"), "checkedAt": host.get("checkedAt"),
         "os": reading.get("os"), "cores": reading.get("cores"),
         "cpu": reading.get("cpu"), "mem": mem, "disk": disk, "load": reading.get("load"),
+        "memTotal": reading.get("memTotal"),
+        "memUsed": (reading.get("memTotal") - reading.get("memAvailable"))
+        if reading.get("memTotal") and reading.get("memAvailable") is not None else None,
         "uptime": reading.get("uptime"), "rates": host.get("rates") or {},
         "cpuSeries": [round(h["cpuAvg"], 1) if h.get("cpuAvg") is not None else 0 for h in history],
         "memSeries": [round(h["memAvg"], 1) if h.get("memAvg") is not None else 0 for h in history],

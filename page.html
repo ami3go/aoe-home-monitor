@@ -79,8 +79,8 @@ function render(state) {
     card.append(head);
     if (!h.up) { card.append(el("div", "meta bad", h.error || "측정값 없음")); grid.append(card); continue; }
     const nums = el("div", "nums");
-    for (const [label, v] of [["CPU", h.cpu], ["메모리", h.mem]]) {
-      const d = el("div", null, label); d.append(el("b", level(v), pct(v))); nums.append(d);
+    for (const [label, v, extra] of [["CPU", h.cpu, h.load != null ? `부하 ${Number(h.load).toFixed(1)}` : ""], ["메모리", h.mem, h.memTotal ? `${bytes(h.memUsed)} / ${bytes(h.memTotal)}` : ""]]) {
+      const d = el("div", null, label); d.append(el("b", level(v), pct(v))); if (extra) d.append(el("span", "meta", extra)); nums.append(d);
     }
     const net = el("div", null, "네트워크"); net.append(el("b", null, `↓${bytes(h.rx, true)}`)); nums.append(net);
     card.append(nums);
