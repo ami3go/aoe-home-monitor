@@ -1,7 +1,7 @@
 # Home Monitor: server health and subscription usage for the Home AI fleet, in the AoE dashboard.
 id = "dev.hyunwook.home-monitor"
 name = "Home Monitor"
-version = "0.9.1"
+version = "0.10.0"
 api_version = 16
 aoe_version = ">=1.20.0, <2.0.0"
 description = "홈서버 전체의 CPU·메모리·디스크 상태와 구독 사용량을 대시보드 패널과 페이지로 보여줍니다."
@@ -58,6 +58,20 @@ default = ""
 key = "power_switch_command"
 label = "스마트 멀티탭 켜기·끄기 명령 (선택)"
 description = "{action} 자리에 on 또는 off가 들어갑니다. 예: ~/.local/bin/home-power {action}"
+type = "string"
+default = ""
+
+[[settings]]
+key = "vpn_switch_command"
+label = "VPN 연결·해제 명령 (선택)"
+description = "{action} 자리에 up 또는 down이 들어갑니다. 예: ~/.local/bin/company-vpn {action}"
+type = "string"
+default = ""
+
+[[settings]]
+key = "shutdown_command"
+label = "서버 끄기 명령 (선택)"
+description = "{host}와 {action}(off 또는 cancel)이 들어갑니다. 예: ~/.local/bin/home-shutdown {host} {action}. 켜기 버튼을 보이는 서버(wake_hosts)에만 쓰입니다."
 type = "string"
 default = ""
 

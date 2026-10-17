@@ -108,6 +108,10 @@ def reader() -> None:
             params = msg.get("params") or {}
             params = params.get("params", params) if isinstance(params, dict) else {}
             threading.Thread(target=lambda: power_switch(str(params.get("action") or "")), daemon=True).start()
+        if tail in ("vpn_switch", "host_power"):
+            params = msg.get("params") or {}
+            params = params.get("params", params) if isinstance(params, dict) else {}
+            threading.Thread(target=lambda: control(tail, params), daemon=True).start()
         if tail == "wake":
             params = msg.get("params") or {}
             params = params.get("params", params) if isinstance(params, dict) else {}
@@ -283,6 +287,55 @@ def power_switch(action: str) -> None:
     _wake.set()
 
 
+_notes: dict[str, str] = {}
+
+
+def run_template(template: str, values: dict[str, str], key: str, busy: str) -> None:
+    """Run a configured command template with validated values; keep its last output line as a dashboard note."""
+    _notes[key] = busy + " " + datetime.now(timezone.utc).astimezone().strftime("%H:%M:%S")
+    _wake.set()
+    try:
+        args = []
+        for a in shlex.split(template):
+            a = os.path.expanduser(a)
+            for name, value in values.items():
+                a = a.replace("{" + name + "}", value)
+            args.append(a)
+        done = subprocess.run(args, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=300)
+        lines = (done.stdout or done.stderr).strip().splitlines()
+        _notes[key] = lines[-1][:140] if lines else f"종료 코드 {done.returncode}"
+    except Exception as exc:  # noqa: BLE001
+        _notes[key] = f"실패: {exc}"[:140]
+    _wake.set()
+
+
+def control(kind: str, params: dict[str, Any]) -> None:
+    """Dashboard buttons: VPN up/down and on-demand host power (wake / shutdown / cancel), allow-listed only."""
+    action = str(params.get("action") or "")
+    if kind == "vpn_switch":
+        template = str(setting("vpn_switch_command", "") or "")
+        if action in ("up", "down") and "{action}" in template:
+            run_template(template, {"action": action}, "vpn", "연결하는 중…" if action == "up" else "끊는 중…")
+        else:
+            log(f"vpn switch refused: {action!r}")
+        return
+    host = str(params.get("host") or "")
+    if host not in {h for h in setting("wake_hosts", []) or [] if isinstance(h, str)}:
+        log(f"host power refused for {host!r}")
+        return
+    if action == "on":
+        template = str(setting("wake_command", "") or "")
+        if "{host}" in template:
+            run_template(template, {"host": host}, "host:" + host, "켜는 중…")
+    elif action in ("off", "cancel"):
+        template = str(setting("shutdown_command", "") or "")
+        if "{host}" in template and "{action}" in template:
+            run_template(template, {"host": host, "action": action}, "host:" + host,
+                         "끄는 중…" if action == "off" else "취소하는 중…")
+    else:
+        log(f"host power refused: {action!r}")
+
+
 def fetch_vpn(command: str) -> dict[str, Any] | None:
     """Optional VPN status from a command printing `state: X (name)`, `started:`, `expires:`, `route a -> if` lines."""
     if not command.strip():
@@ -421,7 +474,8 @@ def build(data: dict[str, Any], usage: dict[str, Any] | None = None,
         "monitor": {"observedAt": data.get("observedAt"), "updated": now, "hosts": hosts, "vpn": vpn,
                     "power": power,
                     "wakeable": [h for h in setting("wake_hosts", []) or [] if isinstance(h, str)],
-                    "wakeNotes": dict(_wake_notes)},
+                    "wakeNotes": {**dict(_wake_notes), **{k[5:]: v for k, v in _notes.items() if k.startswith("host:")}},
+                    "vpnNote": _notes.get("vpn", "")},
         "subscriptions_page": {"updated": now, "subscriptions": subs, "usage": (usage or {}).get("hosts")},
     }
 

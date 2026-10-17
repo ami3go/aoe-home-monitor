@@ -187,6 +187,21 @@ function sessionsPanel(entries) {
   if (!sections.length) body.append(el("div", "muted", "세션 정보가 없습니다."));
   return p;
 }
+function twoPress(key, idle, armedLabel, fire) {
+  // First press arms for 5 s (state kept outside the panel so a refresh keeps it), second press runs.
+  window.armed = window.armed || {};
+  const isArmed = window.armed[key] && Date.now() < window.armed[key];
+  const btn = el("button", "chip on", isArmed ? armedLabel : idle);
+  btn.onclick = (e) => {
+    e.stopPropagation();
+    if (!(window.armed[key] && Date.now() < window.armed[key])) {
+      window.armed[key] = Date.now() + 5000; btn.textContent = armedLabel; setTimeout(() => render(last), 5100); return;
+    }
+    window.armed[key] = 0; btn.disabled = true; btn.textContent = "보내는 중…";
+    fire().then(() => setTimeout(reloadSoon, 4000)).catch((err) => { btn.disabled = false; btn.textContent = `실패: ${err.message || err.code || err}`; });
+  };
+  return btn;
+}
 function serversPanel(entries) {
   const mon = entries.find((e) => e.plugin_id === "dev.hyunwook.home-monitor" && e.slot === "page" && e.id === "monitor")?.payload;
   const hosts = mon?.hosts || [];
@@ -251,6 +266,11 @@ function serversPanel(entries) {
       for (const r of vpn.routes || []) { const k = el("div", "kv"); k.append(el("span", "amount", r)); box.append(k); }
       if (vpn.local) { const k = el("div", "kv"); k.append(el("span", "amount", vpn.local)); box.append(k); }
     } else if (vpn.error) box.append(el("div", "muted", vpn.error));
+    const vrow = el("div", "kv");
+    vrow.append(el("span", "amount", mon.vpnNote || ""),
+      on ? twoPress("vpn-down", "끊기", "한 번 더 누르면 끊습니다", () => bridgeCall("action", { method: "vpn_switch", params: { action: "down" } }))
+         : twoPress("vpn-up", "연결 (2시간)", "한 번 더 누르면 연결합니다", () => bridgeCall("action", { method: "vpn_switch", params: { action: "up" } })));
+    box.append(vrow);
     body.append(box);
   }
   const tiles = el("div", "tiles");
@@ -276,11 +296,15 @@ function serversPanel(entries) {
       }
     } else {
       t.append(el("div", "muted", h.error || ""));
-      if ((mon.wakeable || []).includes(h.id)) {
-        const b = el("button", "chip on", "켜기 (WOL)");
-        b.onclick = () => { b.disabled = true; b.textContent = "켜는 중…"; bridgeCall("action", { method: "wake", params: { host: h.id } }).catch(() => {}); };
-        t.append(b);
-      }
+      if ((mon.wakeable || []).includes(h.id))
+        t.append(twoPress("on-" + h.id, "켜기 (WOL)", "한 번 더 누르면 켭니다", () => bridgeCall("action", { method: "host_power", params: { host: h.id, action: "on" } })));
+    }
+    if (h.up && (mon.wakeable || []).includes(h.id)) {
+      const prow = el("div", "kv"); prow.style.marginTop = "6px";
+      prow.append(twoPress("off-" + h.id, "끄기", "한 번 더 누르면 끕니다", () => bridgeCall("action", { method: "host_power", params: { host: h.id, action: "off" } })));
+      if (/will shut down/.test((mon.wakeNotes || {})[h.id] || ""))
+        prow.append(twoPress("cancel-" + h.id, "종료 취소", "한 번 더 누르면 취소합니다", () => bridgeCall("action", { method: "host_power", params: { host: h.id, action: "cancel" } })));
+      t.append(prow);
     }
     const note = (mon.wakeNotes || {})[h.id];
     if (note) t.append(el("div", "muted", note));
@@ -294,7 +318,7 @@ function subsPanel(entries) {
   const hosts = s?.usage || [];
   const [p, body] = panel("subs", "구독 상태", s ? `계정 ${hosts.reduce((n, h) => n + (h.providers || []).length, 0)}개 · ${s.updated || ""}` : "");
   for (const host of hosts) {
-    if (!(host.providers || []).length && !host.error) continue;  // hosts without any subscription login
+    if (!(host.providers || []).length) continue;  // hosts without any subscription login (or unreachable)
     const box = el("div", "host"); box.append(el("h3", null, host.host));
     for (const pr of host.providers || []) {
       const w = (pr.windows || []).filter((x) => typeof x.used === "number");
