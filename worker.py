@@ -153,7 +153,8 @@ def fetch_usage(command: str) -> dict[str, Any] | None:
     if not command.strip():
         return None
     try:
-        done = subprocess.run(shlex.split(os.path.expanduser(command)), capture_output=True, text=True, timeout=120)
+        done = subprocess.run([os.path.expanduser(a) for a in shlex.split(command)], capture_output=True, text=True,
+                              timeout=120)
         return json.loads(done.stdout)
     except Exception as exc:  # noqa: BLE001
         log(f"usage command: {exc}")
