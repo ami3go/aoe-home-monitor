@@ -1,0 +1,225 @@
+"""Home Monitor worker for Agent of Empires.
+
+Reads the Home AI collector's dashboard JSON (per-host CPU/memory/disk readings, 15-minute history and
+subscription usage) and pushes a dashboard home pane plus the state for the "monitor" page.
+JSON-RPC 2.0 over newline-delimited stdio, standard library only.
+"""
+
+from __future__ import annotations
+
+import itertools
+import json
+import os
+import sys
+import threading
+import urllib.request
+from datetime import datetime, timezone
+from typing import Any
+
+RPC_TIMEOUT = 10.0
+HTTP_TIMEOUT = 10.0
+WARN, DANGER = 80.0, 92.0
+DISK_WARN, DISK_DANGER = 85.0, 95.0
+
+_ids = itertools.count(1)
+_pending: dict[int, dict[str, Any]] = {}
+_pending_lock = threading.Lock()
+_out_lock = threading.Lock()
+_wake = threading.Event()
+
+
+def log(msg: str) -> None:
+    sys.stderr.write(f"[home-monitor] {msg}\n")
+    sys.stderr.flush()
+
+
+def send(obj: dict[str, Any]) -> None:
+    with _out_lock:
+        sys.stdout.write(json.dumps(obj, ensure_ascii=False) + "\n")
+        sys.stdout.flush()
+
+
+def call(method: str, params: dict[str, Any]) -> Any:
+    msg_id = next(_ids)
+    slot: dict[str, Any] = {"event": threading.Event()}
+    with _pending_lock:
+        _pending[msg_id] = slot
+    send({"jsonrpc": "2.0", "id": msg_id, "method": method, "params": params})
+    if not slot["event"].wait(RPC_TIMEOUT):
+        with _pending_lock:
+            _pending.pop(msg_id, None)
+        raise TimeoutError(f"{method} timed out")
+    if "error" in slot:
+        raise RuntimeError(f"{method}: {slot['error']}")
+    return slot.get("result")
+
+
+def reader() -> None:
+    for raw in sys.stdin:
+        try:
+            msg = json.loads(raw)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(msg, dict):
+            continue
+        if "method" not in msg:
+            with _pending_lock:
+                slot = _pending.pop(msg.get("id"), None)
+            if slot is not None:
+                slot.update({"error": msg["error"]} if "error" in msg else {"result": msg.get("result")})
+                slot["event"].set()
+            continue
+        method = str(msg.get("method", ""))
+        tail = method.rsplit(".", 1)[-1]
+        if tail in {"refresh", "changed"}:
+            _wake.set()
+        if msg.get("id") is not None:
+            if tail in {"refresh", "status"}:
+                send({"jsonrpc": "2.0", "id": msg["id"], "result": {"ok": True}})
+            else:
+                send({"jsonrpc": "2.0", "id": msg["id"],
+                      "error": {"code": -32601, "message": f"unknown method {method}"}})
+    os._exit(0)
+
+
+def setting(key: str, default: Any) -> Any:
+    try:
+        value = (call("config.get", {"key": key}) or {}).get("value")
+    except Exception as exc:  # noqa: BLE001
+        log(f"config.get {key}: {exc}")
+        return default
+    return default if value is None else value
+
+
+def fetch(url: str) -> dict[str, Any]:
+    with urllib.request.urlopen(urllib.request.Request(url), timeout=HTTP_TIMEOUT) as resp:  # noqa: S310
+        return json.loads(resp.read().decode("utf-8"))
+
+
+def pct(used: float | None, total: float | None) -> float | None:
+    return round(100.0 * used / total, 1) if used is not None and total else None
+
+
+def tone(value: float | None, warn: float = WARN, danger: float = DANGER) -> str:
+    if value is None:
+        return "neutral"
+    return "danger" if value >= danger else "warn" if value >= warn else "success"
+
+
+def summarize(host: dict[str, Any]) -> dict[str, Any]:
+    """Current numbers and history series for one host, as plain data for the pane and the page."""
+    reading = host.get("reading") or {}
+    mem = pct((reading.get("memTotal") or 0) - (reading.get("memAvailable") or 0), reading.get("memTotal"))
+    disks = [pct(d.get("used"), d.get("total")) for d in reading.get("disks") or []]
+    disk = max((d for d in disks if d is not None), default=None)
+    history = host.get("history") or []
+    return {
+        "id": host.get("id"), "name": host.get("name") or host.get("id"),
+        "up": host.get("status") == "ok" and not host.get("error"),
+        "error": host.get("error"), "checkedAt": host.get("checkedAt"),
+        "os": reading.get("os"), "cores": reading.get("cores"),
+        "cpu": reading.get("cpu"), "mem": mem, "disk": disk, "load": reading.get("load"),
+        "uptime": reading.get("uptime"), "rates": host.get("rates") or {},
+        "cpuSeries": [round(h["cpuAvg"], 1) if h.get("cpuAvg") is not None else 0 for h in history],
+        "memSeries": [round(h["memAvg"], 1) if h.get("memAvg") is not None else 0 for h in history],
+        "diskSeries": [round(h["diskMax"], 1) if h.get("diskMax") is not None else 0 for h in history],
+    }
+
+
+def subscriptions(hosts: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """One entry per provider plan, de-duplicated across hosts; the same account is never summed."""
+    seen: dict[tuple[str, str], dict[str, Any]] = {}
+    for host in hosts:
+        for provider in host.get("providers") or []:
+            usage = provider.get("usage") or {}
+            if usage.get("status") != "fresh":
+                continue
+            key = (provider.get("toolId") or "?", usage.get("plan") or "")
+            entry = seen.setdefault(key, {"tool": provider.get("label") or key[0], "plan": key[1],
+                                          "windows": usage.get("windows") or [], "hosts": []})
+            entry["hosts"].append(host.get("name") or host.get("id"))
+    return list(seen.values())
+
+
+def host_block(s: dict[str, Any]) -> dict[str, Any]:
+    if not s["up"]:
+        return {"kind": "section", "title": s["name"], "boxed": True, "value": "연결 끊김", "value_tone": "danger",
+                "children": [{"kind": "note", "tone": "danger", "text": s["error"] or "측정값 없음"}]}
+    worst = max((s["cpu"] or 0, s["mem"] or 0), default=0)
+    head_tone = "danger" if tone(s["disk"], DISK_WARN, DISK_DANGER) == "danger" or tone(worst) == "danger" \
+        else "warn" if tone(s["disk"], DISK_WARN, DISK_DANGER) == "warn" or tone(worst) == "warn" else "success"
+    fmt = lambda v: "-" if v is None else f"{v:.0f}%"  # noqa: E731
+    bands = [{"at": WARN, "tone": "warn"}, {"at": DANGER, "tone": "danger"}]
+    return {"kind": "section", "title": s["name"], "boxed": True, "collapsible": True,
+            "collapsed": head_tone == "success",
+            "value": f"CPU {fmt(s['cpu'])} · 메모리 {fmt(s['mem'])} · 디스크 {fmt(s['disk'])}",
+            "value_tone": head_tone,
+            "children": [
+                {"kind": "sparkline", "values": s["cpuSeries"][-96:] or [0], "max": 100, "bands": bands,
+                 "caption": "CPU 24시간"},
+                {"kind": "sparkline", "values": s["memSeries"][-96:] or [0], "max": 100, "bands": bands,
+                 "caption": "메모리 24시간"},
+            ]}
+
+
+def build(data: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    hosts = [summarize(h) for h in data.get("hosts") or []]
+    subs = subscriptions(data.get("hosts") or [])
+    up = sum(1 for h in hosts if h["up"])
+    problems = [h["name"] for h in hosts if not h["up"]] + [
+        f"{h['name']} 디스크 {h['disk']:.0f}%" for h in hosts if h["up"] and (h["disk"] or 0) >= DISK_WARN] + [
+        f"{h['name']} 메모리 {h['mem']:.0f}%" for h in hosts if h["up"] and (h["mem"] or 0) >= DANGER]
+    blocks: list[dict[str, Any]] = []
+    if problems:
+        blocks.append({"kind": "callout", "tone": "danger" if up < len(hosts) else "warn",
+                       "title": "확인할 서버가 있습니다", "detail": " · ".join(problems)})
+    blocks.extend(host_block(h) for h in hosts)
+    if subs:
+        rows = []
+        for sub in subs:
+            windows = sub["windows"]
+            top = max((w.get("usedPercent") or 0 for w in windows), default=None)
+            rows.append({"kind": "row", "prefix": sub["tool"], "label": sub["plan"] or "-",
+                         "sublabel": " · ".join(f"{w.get('label')} {w.get('usedPercent', '?')}%" for w in windows),
+                         "value": "-" if top is None else f"{top:.0f}%",
+                         "value_tone": tone(top, 70, 90)})
+        blocks.append({"kind": "section", "title": "구독 사용량", "boxed": True, "collapsible": True,
+                       "children": rows})
+    blocks.append({"kind": "action", "label": "지금 새로고침", "method": "refresh", "icon": "refresh-cw"})
+    now = datetime.now(timezone.utc).astimezone().strftime("%H:%M:%S")
+    pane = {"title": "서버 상태", "icon": "activity", "blocks": blocks,
+            "footer": {"text": f"갱신 {now}", "value": f"서버 {up}/{len(hosts)}",
+                       "tone": "success" if up == len(hosts) else "danger", "icon": "refresh-cw"}}
+    page = {"observedAt": data.get("observedAt"), "updated": now, "hosts": hosts, "subscriptions": subs}
+    return pane, page
+
+
+def refresh() -> int:
+    url = setting("source_url", "http://127.0.0.1:4317/api/dashboard?range=24h")
+    try:
+        pane, page = build(fetch(url))
+    except Exception as exc:  # noqa: BLE001
+        pane = {"title": "서버 상태", "icon": "activity",
+                "blocks": [{"kind": "callout", "tone": "danger", "title": "수집기에 연결할 수 없습니다",
+                            "detail": f"{url}: {exc}"}],
+                "footer": {"text": "갱신 실패", "tone": "danger"}}
+        page = {"error": str(exc), "hosts": [], "subscriptions": []}
+    call("ui.state.set", {"slot": "home-pane", "id": "servers", "payload": pane})
+    call("ui.state.set", {"slot": "page", "id": "monitor", "payload": page})
+    return max(15, int(setting("refresh_secs", 60)))
+
+
+def main() -> None:
+    threading.Thread(target=reader, daemon=True).start()
+    while True:
+        try:
+            delay = refresh()
+        except Exception as exc:  # noqa: BLE001 - keep the worker alive
+            log(f"refresh failed: {exc}")
+            delay = 30
+        _wake.wait(delay)
+        _wake.clear()
+
+
+if __name__ == "__main__":
+    main()

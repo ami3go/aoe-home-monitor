@@ -1,0 +1,48 @@
+# Home Monitor: server health and subscription usage for the Home AI fleet, in the AoE dashboard.
+id = "dev.hyunwook.home-monitor"
+name = "Home Monitor"
+version = "0.1.0"
+api_version = 16
+aoe_version = ">=1.20.0, <2.0.0"
+description = "홈서버 전체의 CPU·메모리·디스크 상태와 구독 사용량을 대시보드 패널과 페이지로 보여줍니다."
+
+# net: reads the collector's dashboard JSON. session.read: the page reads its pushed state through the bridge.
+capabilities = ["runtime.worker", "net", "session.read"]
+
+[[commands]]
+id = "refresh"
+title = "Home Monitor: 지금 새로고침"
+
+[[settings]]
+key = "source_url"
+label = "수집기 주소"
+description = "서버 측정값을 돌려주는 JSON 주소 (Home AI Office 수집기)."
+type = "string"
+default = "http://127.0.0.1:4317/api/dashboard?range=24h"
+
+[[settings]]
+key = "refresh_secs"
+label = "갱신 주기(초)"
+type = "integer"
+default = 60
+min = 15
+max = 3600
+
+[[ui]]
+slot = "home-pane"
+id = "servers"
+
+[[ui]]
+slot = "page"
+id = "monitor"
+title = "서버 모니터링"
+icon = "activity"
+entry = "page.html"
+
+[runtime]
+kind = "command"
+command = [".aoe-build/worker"]
+
+[[runtime.build]]
+command = ["sh", "-c", "mkdir -p .aoe-build && printf '#!/bin/sh\\nexec %s \"$(dirname \"$0\")/../worker.py\"\\n' \"$(command -v python3)\" > .aoe-build/worker && chmod +x .aoe-build/worker"]
+platforms = ["linux", "macos"]
