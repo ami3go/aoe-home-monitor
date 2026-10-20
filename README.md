@@ -15,6 +15,7 @@ An AoE plugin that shows server health (CPU, memory, disk, 24 h history) and sub
 - 페이지 "서버 모니터링": 서버 카드 격자(네트워크 그래프, 디스크 막대).
 - 페이지 "서버 기록": 서버와 기간(24시간·7일·30일·90일)을 골라 CPU·메모리·네트워크·디스크 그래프, 요일 × 시간대 히트맵(언제 많이 쓰는지), CPU·네트워크가 가장 많았던 시간, 시간별·일별 요약. 수집기의 `/api/monitor/history`와 `/api/monitor/profile`을 씁니다.
 - 페이지 "구독 사용량": 서버·서비스·요금제·계정·사용량 표.
+- 대시보드 "프로그램" 패널과 페이지 "프로그램 상태"(`programs_command`를 넣은 경우): 서버마다 직접 등록한 상주 프로그램과 예약 작업(macOS launchd, Linux systemd)의 상태. 실패(마지막 종료 코드가 0이 아님)·멈춤(계속 돌아야 하는데 안 돎)을 맨 위에 모아 보여 주고, PID, 일정, 마지막 로그 시각, 다음 실행, 실행 횟수를 표로 봅니다. "문제만" 버튼으로 걸러 볼 수 있습니다.
 
 ## 필요한 것
 
@@ -58,6 +59,7 @@ aoe serve --restart
 | `power_command` / `power_switch_command` | (비움) | 스마트 멀티탭 상태 JSON(switch, power_w, today_wh, month_wh, history)을 출력하는 명령과, `{action}`에 on/off가 들어가는 켜기·끄기 명령. 대시보드에 전력·사용량·두 번 눌러 켜고 끄는 버튼이 생깁니다 |
 | `vpn_switch_command` / `shutdown_command` | (비움) | VPN 연결·해제(`{action}` = up/down)와, `wake_hosts` 서버 끄기·취소(`{host}`, `{action}` = off/cancel) 명령. 대시보드에 두 번 눌러 실행하는 버튼이 생깁니다 |
 | `tools_command` | (비움) | 서버·CLI별 MCP 서버와 스킬 목록 JSON을 출력하는 명령. 대시보드 "도구" 패널과 "도구 (MCP·스킬)" 페이지(서버×CLI 표)에 보입니다. 10분마다 다시 읽습니다 |
+| `programs_command` | (비움) | 서버별 프로그램 상태 JSON(`{"summary", "hosts": [{"host", "os", "programs": [{"id", "name", "kind", "health", "running", "pid", "lastExit", "schedule", "lastLog", "next"}]}]}`)을 출력하는 명령. 대시보드 "프로그램" 패널과 "프로그램 상태" 페이지에 보입니다. 1분마다 다시 읽습니다 |
 | `refresh_secs` | 60 | 갱신 주기(초) |
 
 ## 테스트

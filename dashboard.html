@@ -113,7 +113,7 @@
 </div>
 <div class="board" id="board"></div>
 <script>
-const PANELS = [["sessions", "세션"], ["servers", "서버 상태"], ["subs", "구독 상태"], ["tools", "도구"]];
+const PANELS = [["sessions", "세션"], ["servers", "서버 상태"], ["subs", "구독 상태"], ["tools", "도구"], ["programs", "프로그램"]];
 const COLS = [["auto", "자동"], ["1", "1"], ["2", "2"], ["3", "3"]];
 const STATUS_TONE = { "실행 중": "", "입력 대기": "warn", "오류": "bad", "유휴": "muted" };
 const NAMES = { codex: "Codex", claude: "Claude", grok: "Grok", antigravity: "Antigravity", kimi: "Kimi", opencode: "OpenCode" };
@@ -398,6 +398,40 @@ function toolsPanel(entries) {
   if (!hosts.length) body.append(el("div", "muted", "아직 목록이 없습니다 (tools_command 설정, 첫 수집은 1~2분)."));
   return p;
 }
+const PROG_HEALTH = { failed: ["실패", "bad"], down: ["멈춤", "bad"], ok: ["정상", ""], off: ["꺼짐", "muted"] };
+function progWhen(p) {
+  const kst = (iso) => new Date(iso).toLocaleTimeString("ko-KR", { timeZone: "Asia/Seoul", hour: "2-digit", minute: "2-digit" });
+  if (p.health === "off") return "꺼짐";
+  if (p.running) return p.pid ? `실행 중 · PID ${p.pid}` : "실행 중";
+  if (p.health === "failed") return `종료 코드 ${p.lastExit}`;
+  if (p.next) return `다음 ${kst(p.next)}`;
+  return p.kind === "service" ? "대기" : p.schedule || "대기";
+}
+function programsPanel(entries) {
+  const data = entries.find((e) => e.plugin_id === "dev.hyunwook.home-monitor" && e.slot === "page" && e.id === "programs")?.payload;
+  const s = data?.summary || {};
+  const problems = (s.failed || 0) + (s.down || 0);
+  const [p, body] = panel("programs", "프로그램", data && !data.error ? `문제 ${problems} · 정상 ${s.ok || 0} · 꺼짐 ${s.off || 0}` : "수집 중");
+  if (data?.error) body.append(el("div", "bad", data.error));
+  if (problems) body.append(el("div", "row warn", `문제 ${problems}개: ` + (data.hosts || []).flatMap((h) => (h.programs || [])
+    .filter((x) => x.health === "failed" || x.health === "down").map((x) => `${h.host} ${x.name}`)).join(", ")));
+  for (const h of data?.hosts || []) {
+    if (h.skipped) continue;
+    const box = el("div", "host");
+    box.append(hostHead(h.host, h.os, h.error ? "연결 실패" : `${(h.programs || []).length}개`, h.error ? "bad" : "muted"));
+    for (const x of h.programs || []) {
+      const [label, tone] = PROG_HEALTH[x.health] || [x.health, ""];
+      const r = el("div", "row");
+      r.append(el("span", "tool", label), el("span", "title", x.name || x.id), el("span", "st " + tone, progWhen(x)));
+      r.title = `${x.id}\n${x.schedule || ""}${x.command ? "\n" + x.command : ""}`;
+      if (tone === "bad") r.classList.add("warn");
+      box.append(r);
+    }
+    body.append(box);
+  }
+  if (!data) body.append(el("div", "muted", "아직 목록이 없습니다 (programs_command 설정, 첫 수집은 1분 안)."));
+  return p;
+}
 function render(entries) {
   last = entries || [];
   const monHosts = last.find((e) => e.plugin_id === "dev.hyunwook.home-monitor" && e.slot === "page" && e.id === "monitor")?.payload?.hosts || [];
@@ -410,7 +444,7 @@ function render(entries) {
     const saved = last.find((e) => e.plugin_id === "dev.hyunwook.home-monitor" && e.slot === "page" && e.id === "dashboard")?.payload?.layout;
     if (saved && saved.order) { Object.assign(prefs, saved); normalize(); serverLayoutApplied = true; chips(); }
   }
-  const build = { sessions: sessionsPanel, servers: serversPanel, subs: subsPanel, tools: toolsPanel };
+  const build = { sessions: sessionsPanel, servers: serversPanel, subs: subsPanel, tools: toolsPanel, programs: programsPanel };
   for (const id of prefs.order) if (!prefs.hidden.includes(id)) board.append(build[id](last));
   document.getElementById("sub").textContent = `15초마다 갱신 · 제목을 끌어 순서 변경 · 넓게로 두 칸 차지`;
 }

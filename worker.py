@@ -355,6 +355,25 @@ def tools_loop() -> None:
         time.sleep(600)
 
 
+_programs = {"data": None, "at": 0.0}
+
+
+def programs_loop() -> None:
+    """Owner programs (launchd/systemd jobs) per host, refreshed every minute in the background."""
+    while True:
+        command = str(setting("programs_command", "") or "")
+        if command.strip():
+            try:
+                done = subprocess.run([os.path.expanduser(a) for a in shlex.split(command)], stdin=subprocess.DEVNULL,
+                                      capture_output=True, text=True, timeout=180)
+                _programs["data"] = json.loads(done.stdout) if done.stdout.strip() else {"error": done.stderr[-200:]}
+            except Exception as exc:  # noqa: BLE001
+                _programs["data"] = {"error": str(exc)[:200]}
+            _programs["at"] = time.time()
+            _wake.set()
+        time.sleep(60)
+
+
 def fetch_vpn(command: str) -> dict[str, Any] | None:
     """Optional VPN status from a command printing `state: X (name)`, `started:`, `expires:`, `route a -> if` lines."""
     if not command.strip():
@@ -565,6 +584,7 @@ def build(data: dict[str, Any], usage: dict[str, Any] | None = None,
                     "vpnNote": _notes.get("vpn", "")},
         "subscriptions_page": {"updated": now, "subscriptions": subs, "usage": (usage or {}).get("hosts")},
         "tools": _tools["data"],
+        "programs": _programs["data"],
         "bar": status_bar(hosts, usage, vpn),
     }
 
@@ -637,6 +657,8 @@ def refresh() -> int:
     call("ui.state.set", {"slot": "status-bar", "id": "fleet", "payload": out.get("bar") or {"items": []}})
     if out.get("tools") is not None:
         call("ui.state.set", {"slot": "page", "id": "tools", "payload": out["tools"]})
+    if out.get("programs") is not None:
+        call("ui.state.set", {"slot": "page", "id": "programs", "payload": out["programs"]})
     push_history()
     return max(15, int(setting("refresh_secs", 60)))
 
@@ -644,6 +666,7 @@ def refresh() -> int:
 def main() -> None:
     threading.Thread(target=reader, daemon=True).start()
     threading.Thread(target=tools_loop, daemon=True).start()
+    threading.Thread(target=programs_loop, daemon=True).start()
     while True:
         try:
             delay = refresh()

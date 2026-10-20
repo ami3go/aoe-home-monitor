@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>프로그램 상태</title>
+<style>
+  :root { --bg: #0f1115; --fg: #e6e6e6; --muted: #9aa0a6; --line: #2a2f37; --card: #161a20;
+          --ok: #3fb950; --warn: #d29922; --bad: #f85149; --accent: #58a6ff; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 16px; background: var(--background, var(--bg)); color: var(--foreground, var(--fg));
+         font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  h2 { font-size: 15px; margin: 22px 0 6px; display: flex; gap: 10px; align-items: baseline; }
+  h2 .meta { font-weight: 400; }
+  .sub { color: var(--muted); font-size: 12px; margin-bottom: 12px; }
+  .meta, .muted { color: var(--muted); font-size: 12px; }
+  .bar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 8px; }
+  .chip { border: 1px solid var(--line); background: transparent; color: inherit; border-radius: 999px; padding: 2px 10px;
+          font: inherit; font-size: 12px; cursor: pointer; }
+  .chip.on { border-color: var(--accent); color: var(--accent); }
+  .pill { display: inline-block; border-radius: 999px; padding: 1px 8px; font-size: 12px; white-space: nowrap;
+          border: 1px solid currentColor; }
+  .ok { color: var(--ok); } .warn { color: var(--warn); } .bad { color: var(--bad); } .off { color: var(--muted); }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); font-size: 13px; vertical-align: top; }
+  th { color: var(--muted); font-weight: 500; white-space: nowrap; }
+  td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+  td .id { display: block; color: var(--muted); font-size: 11px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  tr.problem td { background: rgba(248, 81, 73, 0.07); }
+  .err { color: var(--bad); font-size: 12px; }
+</style>
+</head>
+<body>
+<h1>프로그램 상태</h1>
+<div class="sub" id="sub">불러오는 중…</div>
+<div class="bar" id="bar"></div>
+<div id="hosts"></div>
+<script>
+const PAGE_ID = "programs";
+const HEALTH = { failed: ["실패", "bad"], down: ["멈춤", "bad"], ok: ["정상", "ok"], off: ["꺼짐", "off"] };
+const KIND = { service: "상주", scheduled: "예약", once: "한 번" };
+let onlyProblems = false, lastState = null;
+function ago(iso) {
+  if (!iso) return "–";
+  const s = (Date.now() - Date.parse(iso)) / 1000, a = Math.abs(s);
+  const t = a < 90 ? `${Math.round(a)}초` : a < 5400 ? `${Math.round(a / 60)}분` : a < 172800 ? `${Math.round(a / 3600)}시간` : `${Math.round(a / 86400)}일`;
+  return s >= 0 ? `${t} 전` : `${t} 후`;
+}
+function kst(iso) {
+  if (!iso) return "";
+  return new Date(iso).toLocaleString("ko-KR", { timeZone: "Asia/Seoul", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
+}
+function state(p) {
+  if (p.health === "off") return "꺼짐";
+  if (p.running) return "실행 중";
+  if (p.kind === "service") return p.health === "ok" ? "대기" : "멈춤";
+  return "대기";
+}
+function render(data) {
+  lastState = data;
+  const box = document.getElementById("hosts"); box.replaceChildren();
+  const bar = document.getElementById("bar"); bar.replaceChildren();
+  if (!data || data.error) { document.getElementById("sub").textContent = data?.error || "아직 목록이 없습니다 (programs_command 설정)."; return; }
+  const s = data.summary || {};
+  const problems = (s.failed || 0) + (s.down || 0);
+  document.getElementById("sub").textContent =
+    `${kst(data.observed)} 기준 · 1분마다 갱신 · 문제 ${problems} · 정상 ${s.ok || 0} · 꺼짐 ${s.off || 0}`;
+  const all = el("button", onlyProblems ? "chip" : "chip on", "전체"), bad = el("button", onlyProblems ? "chip on" : "chip", `문제만 (${problems})`);
+  all.onclick = () => { onlyProblems = false; render(lastState); }; bad.onclick = () => { onlyProblems = true; render(lastState); };
+  bar.append(all, bad);
+  for (const h of data.hosts || []) {
+    let progs = h.programs || [];
+    if (onlyProblems) progs = progs.filter((p) => p.health === "failed" || p.health === "down");
+    if (!progs.length && (onlyProblems || h.skipped)) continue;
+    const head = el("h2", null, h.host);
+    head.append(el("span", "meta", h.error ? "" : h.skipped ? "필요할 때만 켜는 서버" : `${(h.programs || []).length}개 · ${h.os || ""}`));
+    box.append(head);
+    if (h.error) { box.append(el("div", "err", `연결 실패: ${h.error}`)); continue; }
+    if (!progs.length) { box.append(el("div", "muted", "등록된 프로그램이 없습니다.")); continue; }
+    const t = el("table"), thead = el("thead"), tr = el("tr");
+    for (const c of ["상태", "프로그램", "종류", "일정", "마지막 기록", "다음 실행", "PID", "종료 코드", "실행 횟수"]) tr.append(el("th", null, c));
+    thead.append(tr); t.append(thead);
+    const tb = el("tbody");
+    for (const p of progs) {
+      const [label, tone] = HEALTH[p.health] || [p.health, ""];
+      const row = el("tr", p.health === "failed" || p.health === "down" ? "problem" : "");
+      const st = el("td"); st.append(el("span", `pill ${tone}`, `${label} · ${state(p)}`)); row.append(st);
+      const nm = el("td", null, p.name || p.id); nm.append(el("span", "id", p.autoName ? `${p.id} · 자동 이름` : p.id)); nm.title = [p.command, p.log ? `로그: ${p.log}` : ""].filter(Boolean).join("\n");
+      row.append(nm, el("td", null, KIND[p.kind] || p.kind), el("td", null, p.schedule || ""));
+      const last = el("td", "num", ago(p.lastLog)); last.title = kst(p.lastLog); row.append(last);
+      const nxt = el("td", "num", p.next ? ago(p.next) : "–"); nxt.title = kst(p.next); row.append(nxt);
+      row.append(el("td", "num", p.pid ?? "–"), el("td", "num " + (p.lastExit ? "bad" : ""), p.lastExit ?? "–"), el("td", "num", p.runs ?? "–"));
+      tb.append(row);
+    }
+    t.append(tb); box.append(t);
+  }
+}
+</script>
+<script>
+(() => {
+  let next = 0;
+  const pending = new Map();
+  const { port1, port2 } = new MessageChannel();
+  port1.onmessage = ({ data: m }) => {
+    if (m.event === "theme") {
+      for (const [k, v] of Object.entries(m.data.cssVars || {})) document.documentElement.style.setProperty(k, String(v));
+      return;
+    }
+    if (m.event) return;
+    const done = pending.get(m.id); pending.delete(m.id);
+    if (done) done(m);
+  };
+  const request = (msg, post) => {
+    const id = ++next;
+    const reply = new Promise((resolve, reject) => pending.set(id, (m) => (m.error ? reject(m.error) : resolve(m.result))));
+    post({ aoeBridge: 1, id, ...msg });
+    return reply;
+  };
+  const call = (method, params) => request({ method, params }, (m) => port1.postMessage(m));
+  window.el = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; };
+  async function load() {
+    try {
+      const body = await call("plugins.uiState");
+      const entries = Array.isArray(body) ? body : body.entries || [];
+      const mine = entries.find((e) => e.plugin_id === "dev.hyunwook.home-monitor" && e.slot === "page" && e.id === PAGE_ID);
+      render(mine ? mine.payload : null);
+    } catch (err) {
+      document.getElementById("sub").textContent = `불러오지 못했습니다: ${err.message || err.code || err}`;
+    }
+  }
+  request({ method: "ready", params: { nonce: location.hash.slice(1) } }, (m) => parent.postMessage(m, "*", [port2])).then(load);
+  setInterval(load, 30000);
+})();
+</script>
+</body>
+</html>
