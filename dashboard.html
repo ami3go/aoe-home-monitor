@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>대시보드</title>
+<title data-i18n="대시보드">대시보드</title>
 <style>
   :root { --bg: #0f1115; --fg: #e6e6e6; --muted: #9aa0a6; --line: #2a2f37; --card: #161a20;
           --ok: #3fb950; --warn: #d29922; --bad: #f85149; --accent: #58a6ff; --accent2: #d2a8ff; }
@@ -107,20 +107,35 @@
   .tile .t { align-items: center; }
 </style>
 <div class="bar-top">
-  <h1 style="margin:0">대시보드</h1><span class="sub" id="sub" style="margin:0">불러오는 중…</span><span class="grow"></span>
-  <span class="muted" style="font-size:12px">보이기</span><span id="toggles"></span>
-  <span class="muted" style="font-size:12px">열</span><span id="cols"></span>
+  <h1 style="margin:0" data-i18n="대시보드">대시보드</h1><span class="sub" id="sub" style="margin:0" data-i18n="불러오는 중…">불러오는 중…</span><span class="grow"></span>
+  <span class="muted" style="font-size:12px" data-i18n="보이기">보이기</span><span id="toggles"></span>
+  <span class="muted" style="font-size:12px" data-i18n="열">열</span><span id="cols"></span>
 </div>
 <div class="board" id="board"></div>
 <script>
-const PANELS = [["sessions", "세션"], ["servers", "서버 상태"], ["subs", "구독 상태"], ["tools", "도구"], ["programs", "프로그램"]];
-const COLS = [["auto", "자동"], ["1", "1"], ["2", "2"], ["3", "3"]];
+// Worker-selected language; all display data stays text, never HTML.
+let language = "ko", messages = {};
+function translate(source, values = {}) {
+  const text = language === "en" ? (messages[source] ?? source) : source;
+  return String(text).replace(/\{(p\d+)\}/g, (match, key) => Object.hasOwn(values, key) ? String(values[key]) : match);
+}
+function setLocale(entries) {
+  const settings = entries.find((e) => e.plugin_id === "dev.hyunwook.home-monitor" && e.slot === "page" && e.id === "dashboard")?.payload;
+  language = settings?.language === "en" ? "en" : "ko";
+  messages = settings?.messages || {};
+  document.documentElement.lang = language;
+  for (const node of document.querySelectorAll("[data-i18n]")) node.textContent = translate(node.dataset.i18n);
+}
+</script>
+<script>
+function PANELS() { return [["sessions", translate("세션")], ["servers", translate("서버 상태")], ["subs", translate("구독 상태")], ["tools", translate("도구")], ["programs", translate("프로그램")]]; }
+function COLS() { return [["auto", translate("자동")], ["1", "1"], ["2", "2"], ["3", "3"]]; }
 const STATUS_TONE = { "실행 중": "", "입력 대기": "warn", "오류": "bad", "유휴": "muted" };
 const NAMES = { codex: "Codex", claude: "Claude", grok: "Grok", antigravity: "Antigravity", kimi: "Kimi", opencode: "OpenCode" };
 const prefs = (() => { try { return JSON.parse(localStorage.getItem("aoe-home-dashboard") || "{}"); } catch { return {}; } })();
 const normalize = () => {
   prefs.hidden = prefs.hidden || []; prefs.wide = prefs.wide || []; prefs.cols = prefs.cols || "auto";
-  const ids = PANELS.map((p) => p[0]); prefs.order = (prefs.order || []).filter((x) => ids.includes(x));
+  const ids = PANELS().map((p) => p[0]); prefs.order = (prefs.order || []).filter((x) => ids.includes(x));
   for (const id of ids) if (!prefs.order.includes(id)) prefs.order.push(id);
 };
 normalize();
@@ -139,13 +154,13 @@ function bytes(v, rate) {
 }
 function chips() {
   const t = document.getElementById("toggles"); t.replaceChildren();
-  for (const [id, label] of PANELS) {
+  for (const [id, label] of PANELS()) {
     const b = el("button", prefs.hidden.includes(id) ? "chip" : "chip on", label);
     b.onclick = () => { prefs.hidden = prefs.hidden.includes(id) ? prefs.hidden.filter((x) => x !== id) : [...prefs.hidden, id]; save(); render(last); };
     t.append(b, document.createTextNode(" "));
   }
   const c = document.getElementById("cols"); c.replaceChildren();
-  for (const [v, label] of COLS) {
+  for (const [v, label] of COLS()) {
     const b = el("button", prefs.cols === v ? "chip on" : "chip", label);
     b.onclick = () => { prefs.cols = v; save(); render(last); };
     c.append(b, document.createTextNode(" "));
@@ -154,9 +169,9 @@ function chips() {
 let dragging = null;
 function panel(id, title, right) {
   const p = el("section", "panel" + (prefs.wide.includes(id) ? " wide" : "")); p.dataset.id = id;
-  const h = el("header"); h.draggable = true; h.title = "끌어서 순서를 바꿉니다";
+  const h = el("header"); h.draggable = true; h.title = translate("끌어서 순서를 바꿉니다");
   const grip = el("span", "grip", "⠿");
-  const wide = el("button", "chip", prefs.wide.includes(id) ? "좁게" : "넓게");
+  const wide = el("button", "chip", prefs.wide.includes(id) ? translate("좁게") : translate("넓게"));
   wide.onclick = (e) => { e.stopPropagation(); prefs.wide = prefs.wide.includes(id) ? prefs.wide.filter((x) => x !== id) : [...prefs.wide, id]; save(); render(last); };
   const left = el("span"); left.append(grip, el("b", null, title));
   const tools = el("span"); tools.append(el("span", "muted", (right || "") + " "), wide);
@@ -182,7 +197,7 @@ function sessionsPanel(entries) {
     || entries.find((e) => e.plugin_id === "dev.hyunwook.fleet" && e.slot === "home-pane");
   const sections = (fleet?.payload?.blocks || []).filter((b) => b.kind === "section");
   const total = sections.reduce((n, s) => n + (s.children || []).filter((c) => c.kind === "row").length, 0);
-  const [p, body] = panel("sessions", "세션", fleet ? `${fleet.payload.footer?.value || ""} · 세션 ${total}개` : "Fleet 플러그인 없음");
+  const [p, body] = panel("sessions", translate("세션"), fleet ? translate("{p0} · 세션 {p1}개", {p0: fleet.payload.footer?.value || "", p1: total}) : translate("Fleet 플러그인 없음"));
   const alert = (fleet?.payload?.blocks || []).find((b) => b.kind === "callout");
   if (alert) body.append(el("div", "row warn", `${alert.title} — ${alert.detail || ""}`));
   for (const s of sections) {
@@ -191,7 +206,7 @@ function sessionsPanel(entries) {
     for (const c of s.children || []) {
       if (c.kind === "note") { box.append(el("div", "row muted", c.text)); continue; }
       const r = el("div", c.href ? "row link" : "row");
-      r.append(el("span", "tool", c.prefix || ""), el("span", "title", c.label || ""), el("span", "st " + (STATUS_TONE[c.value] || ""), c.value || ""));
+      r.append(el("span", "tool", c.prefix || ""), el("span", "title", c.label || ""), el("span", "st " + (STATUS_TONE[c.value] || ""), translate(c.value || "")));
       const m = /^\/session\/([^/?#]+)/.exec(c.href || "");
       if (m) r.onclick = () => bridgeCall("openSession", { id: m[1] }).catch(() => {});
       if (c.sublabel) r.title = c.sublabel;
@@ -199,7 +214,7 @@ function sessionsPanel(entries) {
     }
     body.append(box);
   }
-  if (!sections.length) body.append(el("div", "muted", "세션 정보가 없습니다."));
+  if (!sections.length) body.append(el("div", "muted", translate("세션 정보가 없습니다.")));
   return p;
 }
 function twoPress(key, idle, armedLabel, fire) {
@@ -212,8 +227,8 @@ function twoPress(key, idle, armedLabel, fire) {
     if (!(window.armed[key] && Date.now() < window.armed[key])) {
       window.armed[key] = Date.now() + 5000; btn.textContent = armedLabel; setTimeout(() => render(last), 5100); return;
     }
-    window.armed[key] = 0; btn.disabled = true; btn.textContent = "보내는 중…";
-    fire().then(() => setTimeout(reloadSoon, 4000)).catch((err) => { btn.disabled = false; btn.textContent = `실패: ${err.message || err.code || err}`; });
+    window.armed[key] = 0; btn.disabled = true; btn.textContent = translate("보내는 중…");
+    fire().then(() => setTimeout(reloadSoon, 4000)).catch((err) => { btn.disabled = false; btn.textContent = translate("실패: {p0}", {p0: err.message || err.code || err}); });
   };
   return btn;
 }
@@ -221,18 +236,18 @@ function serversPanel(entries) {
   const mon = entries.find((e) => e.plugin_id === "dev.hyunwook.home-monitor" && e.slot === "page" && e.id === "monitor")?.payload;
   const hosts = mon?.hosts || [];
   const up = hosts.filter((h) => h.up).length;
-  const [p, body] = panel("servers", "서버 상태", mon ? `서버 ${up}/${hosts.length} · ${mon.updated || ""}` : "");
+  const [p, body] = panel("servers", translate("서버 상태"), mon ? translate("서버 {p0}/{p1} · {p2}", {p0: up, p1: hosts.length, p2: mon.updated || ""}) : "");
   const pw = mon?.power;
   if (pw) {
     const on = pw.switch === "on";
     const box = el("div", "tile vpn" + (on ? " on" : ""));
     const head = el("div", "t");
-    head.append(el("span", null, `멀티탭 · ${pw.label || ""}`), el("span", pw.error ? "bad" : on ? "ok" : "muted", pw.error ? "확인 불가" : !pw.online ? "오프라인" : on ? "켜짐" : "꺼짐"));
+    head.append(el("span", null, translate("멀티탭 · {p0}", {p0: pw.label || ""})), el("span", pw.error ? "bad" : on ? "ok" : "muted", pw.error ? translate("확인 불가") : !pw.online ? translate("오프라인") : on ? translate("켜짐") : translate("꺼짐")));
     box.append(head);
     if (pw.error) box.append(el("div", "muted", pw.error));
     else {
-      const kv = el("div", "kv"); kv.append(el("span", null, "지금 전력"), el("b", null, `${pw.power_w ?? "-"} W`)); box.append(kv);
-      const kv2 = el("div", "kv"); kv2.append(el("span", null, "오늘 / 이번 달"), el("span", "amount", `${(pw.today_wh / 1000).toFixed(2)} kWh / ${(pw.month_wh / 1000).toFixed(2)} kWh`)); box.append(kv2);
+      const kv = el("div", "kv"); kv.append(el("span", null, translate("지금 전력")), el("b", null, `${pw.power_w ?? "-"} W`)); box.append(kv);
+      const kv2 = el("div", "kv"); kv2.append(el("span", null, translate("오늘 / 이번 달")), el("span", "amount", `${(pw.today_wh / 1000).toFixed(2)} kWh / ${(pw.month_wh / 1000).toFixed(2)} kWh`)); box.append(kv2);
       const vals = (pw.history || []).map((h) => h.w || 0);
       if (vals.length > 1) {
         const NS = "http://www.w3.org/2000/svg"; const svg = document.createElementNS(NS, "svg");
@@ -248,22 +263,22 @@ function serversPanel(entries) {
       const action = on ? "off" : "on";
       const armed = window.powerArm && window.powerArm.action === action && Date.now() < window.powerArm.until;
       const sent = window.powerSent && Date.now() < window.powerSent.until;
-      const btn = el("button", "chip on", sent ? "보내는 중…" : armed ? (on ? "한 번 더 누르면 끕니다" : "한 번 더 누르면 켭니다") : (on ? "끄기" : "켜기"));
+      const btn = el("button", "chip on", sent ? translate("보내는 중…") : armed ? (on ? translate("한 번 더 누르면 끕니다") : translate("한 번 더 누르면 켭니다")) : (on ? translate("끄기") : translate("켜기")));
       btn.disabled = !!sent;
       btn.onclick = () => {
         if (!(window.powerArm && window.powerArm.action === action && Date.now() < window.powerArm.until)) {
           window.powerArm = { action, until: Date.now() + 5000 };
-          btn.textContent = on ? "한 번 더 누르면 끕니다" : "한 번 더 누르면 켭니다";
+          btn.textContent = on ? translate("한 번 더 누르면 끕니다") : translate("한 번 더 누르면 켭니다");
           setTimeout(() => render(last), 5100);
           return;
         }
         window.powerArm = null; window.powerSent = { until: Date.now() + 20000 };
-        btn.disabled = true; btn.textContent = "보내는 중…";
+        btn.disabled = true; btn.textContent = translate("보내는 중…");
         bridgeCall("action", { method: "power_switch", params: { action } })
           .then(() => setTimeout(reloadSoon, 4000))
-          .catch((e) => { window.powerSent = null; window.powerError = `보내지 못했습니다: ${e.message || e.code || e}`; render(last); });
+          .catch((e) => { window.powerSent = null; window.powerError = translate("보내지 못했습니다: {p0}", {p0: e.message || e.code || e}); render(last); });
       };
-      row.append(el("span", "amount", window.powerError || pw.note || (pw.counting_since ? `${pw.counting_since.slice(5, 16).replace("T", " ")}부터 집계` : "")), btn);
+      row.append(el("span", "amount", window.powerError || pw.note || (pw.counting_since ? translate("{p0}부터 집계", {p0: pw.counting_since.slice(5, 16).replace("T", " ")}) : "")), btn);
       box.append(row);
     }
     body.append(box);
@@ -273,36 +288,36 @@ function serversPanel(entries) {
     const on = vpn.state === "CONNECTED";
     const box = el("div", "tile vpn" + (on ? " on" : ""));
     const head = el("div", "t");
-    head.append(el("span", null, `회사 VPN${vpn.name ? ` · ${vpn.name}` : ""}`), el("span", on ? "ok" : "muted", on ? "연결됨" : vpn.state === "UNKNOWN" ? "확인 불가" : "꺼짐"));
+    head.append(el("span", null, translate("회사 VPN{p0}", {p0: vpn.name ? ` · ${vpn.name}` : ""})), el("span", on ? "ok" : "muted", on ? translate("연결됨") : vpn.state === "UNKNOWN" ? translate("확인 불가") : translate("꺼짐")));
     box.append(head);
     if (on) {
-      const kv = el("div", "kv"); kv.append(el("span", null, "켠 시각"), el("span", "amount", vpn.started || "-")); box.append(kv);
-      const kv2 = el("div", "kv"); kv2.append(el("span", null, "자동 해제"), el("span", "amount", vpn.expires || "Tunnelblick에서 직접 켬")); box.append(kv2);
+      const kv = el("div", "kv"); kv.append(el("span", null, translate("켠 시각")), el("span", "amount", vpn.started || "-")); box.append(kv);
+      const kv2 = el("div", "kv"); kv2.append(el("span", null, translate("자동 해제")), el("span", "amount", vpn.expires || translate("Tunnelblick에서 직접 켬"))); box.append(kv2);
       for (const r of vpn.routes || []) { const k = el("div", "kv"); k.append(el("span", "amount", r)); box.append(k); }
       if (vpn.local) { const k = el("div", "kv"); k.append(el("span", "amount", vpn.local)); box.append(k); }
     } else if (vpn.error) box.append(el("div", "muted", vpn.error));
     const vrow = el("div", "kv");
     vrow.append(el("span", "amount", mon.vpnNote || ""),
-      on ? twoPress("vpn-down", "끊기", "한 번 더 누르면 끊습니다", () => bridgeCall("action", { method: "vpn_switch", params: { action: "down" } }))
-         : twoPress("vpn-up", "연결 (2시간)", "한 번 더 누르면 연결합니다", () => bridgeCall("action", { method: "vpn_switch", params: { action: "up" } })));
+      on ? twoPress("vpn-down", translate("끊기"), translate("한 번 더 누르면 끊습니다"), () => bridgeCall("action", { method: "vpn_switch", params: { action: "down" } }))
+         : twoPress("vpn-up", translate("연결 (2시간)"), translate("한 번 더 누르면 연결합니다"), () => bridgeCall("action", { method: "vpn_switch", params: { action: "up" } })));
     box.append(vrow);
     body.append(box);
   }
   const tiles = el("div", "tiles");
   for (const h of hosts) {
     const t = el("div", (h.up ? "tile" : "tile down") + ` os-${osKey(h.name, h.os)}`);
-    const head = el("div", "t"); head.append(hostLabel(h.name, h.os), el("span", h.up ? "muted" : "bad", h.up ? `${h.cores || "?"}코어` : "연결 끊김"));
+    const head = el("div", "t"); head.append(hostLabel(h.name, h.os), el("span", h.up ? "muted" : "bad", h.up ? translate("{p0}코어", {p0: h.cores || "?"}) : translate("연결 끊김")));
     t.append(head);
     if (h.up) {
-      const amounts = { CPU: h.load != null ? `부하 ${Number(h.load).toFixed(1)} / ${h.cores || "?"}코어` : `${h.cores || "?"}코어`,
-                        "메모리": h.memTotal ? `${bytes(h.memUsed)} / ${bytes(h.memTotal)}` : "" };
-      for (const [label, v] of [["CPU", h.cpu], ["메모리", h.mem]]) {
+      const amounts = { CPU: h.load != null ? translate("부하 {p0} / {p1}코어", {p0: Number(h.load).toFixed(1), p1: h.cores || "?"}) : translate("{p0}코어", {p0: h.cores || "?"}),
+                        [translate("메모리")]: h.memTotal ? `${bytes(h.memUsed)} / ${bytes(h.memTotal)}` : "" };
+      for (const [label, v] of [["CPU", h.cpu], [translate("메모리"), h.mem]]) {
         const kv = el("div", "kv"); const val = el("b", level(v), pct(v));
         kv.append(el("span", null, label), el("span", "amount", amounts[label]), val);
         const bar = el("div", "mini"); const f = el("span", level(v)); f.style.width = `${Math.min(100, v || 0)}%`; bar.append(f);
         t.append(kv, bar);
       }
-      const net = el("div", "kv"); net.append(el("span", null, "네트워크"), el("b", null, `↓${bytes(h.rx, true)} ↑${bytes(h.tx, true)}`)); t.append(net);
+      const net = el("div", "kv"); net.append(el("span", null, translate("네트워크")), el("b", null, `↓${bytes(h.rx, true)} ↑${bytes(h.tx, true)}`)); t.append(net);
       for (const d of h.disks || []) {
         t.append(el("div", "mountname", d.mount));
         const kv = el("div", "kv"); kv.append(el("span", "amount", `${bytes(d.used)} / ${bytes(d.total)}`), el("b", level(d.pct, 85, 95), pct(d.pct)));
@@ -312,13 +327,13 @@ function serversPanel(entries) {
     } else {
       t.append(el("div", "muted", h.error || ""));
       if ((mon.wakeable || []).includes(h.id))
-        t.append(twoPress("on-" + h.id, "켜기 (WOL)", "한 번 더 누르면 켭니다", () => bridgeCall("action", { method: "host_power", params: { host: h.id, action: "on" } })));
+        t.append(twoPress("on-" + h.id, translate("켜기 (WOL)"), translate("한 번 더 누르면 켭니다"), () => bridgeCall("action", { method: "host_power", params: { host: h.id, action: "on" } })));
     }
     if (h.up && (mon.wakeable || []).includes(h.id)) {
       const prow = el("div", "kv"); prow.style.marginTop = "6px";
-      prow.append(twoPress("off-" + h.id, "끄기", "한 번 더 누르면 끕니다", () => bridgeCall("action", { method: "host_power", params: { host: h.id, action: "off" } })));
+      prow.append(twoPress("off-" + h.id, translate("끄기"), translate("한 번 더 누르면 끕니다"), () => bridgeCall("action", { method: "host_power", params: { host: h.id, action: "off" } })));
       if (/will shut down/.test((mon.wakeNotes || {})[h.id] || ""))
-        prow.append(twoPress("cancel-" + h.id, "종료 취소", "한 번 더 누르면 취소합니다", () => bridgeCall("action", { method: "host_power", params: { host: h.id, action: "cancel" } })));
+        prow.append(twoPress("cancel-" + h.id, translate("종료 취소"), translate("한 번 더 누르면 취소합니다"), () => bridgeCall("action", { method: "host_power", params: { host: h.id, action: "cancel" } })));
       t.append(prow);
     }
     const note = (mon.wakeNotes || {})[h.id];
@@ -331,7 +346,7 @@ function serversPanel(entries) {
 function subsPanel(entries) {
   const s = entries.find((e) => e.plugin_id === "dev.hyunwook.home-monitor" && e.slot === "page" && e.id === "subscriptions")?.payload;
   const hosts = s?.usage || [];
-  const [p, body] = panel("subs", "구독 상태", s ? `계정 ${hosts.reduce((n, h) => n + (h.providers || []).length, 0)}개 · ${s.updated || ""}` : "");
+  const [p, body] = panel("subs", translate("구독 상태"), s ? translate("계정 {p0}개 · {p1}", {p0: hosts.reduce((n, h) => n + (h.providers || []).length, 0), p1: s.updated || ""}) : "");
   for (const host of hosts) {
     if (!(host.providers || []).length) continue;  // hosts without any subscription login (or unreachable)
     const box = el("div", "host"); box.append(hostHead(host.host));
@@ -340,13 +355,13 @@ function subsPanel(entries) {
       const top = w.length ? Math.max(...w.map((x) => x.used)) : null;
       const r = el("div", "sub-row");
       r.append(el("span", null, NAMES[pr.tool] || pr.tool), el("span", "muted", `${pr.plan || "-"} · ${pr.account || ""}`),
-        el("span", top == null ? "muted" : level(top, 70, 90), top == null ? "미확인" : `${Math.round(top)}%`));
+        el("span", top == null ? "muted" : level(top, 70, 90), top == null ? translate("미확인") : `${Math.round(top)}%`));
       r.title = w.map((x) => `${x.label} ${Math.round(x.used)}%`).join(" · ") || pr.reason || "";
       box.append(r);
     }
     body.append(box);
   }
-  if (!hosts.length) body.append(el("div", "muted", "서버별 구독 정보가 없습니다 (usage_command 설정 필요)."));
+  if (!hosts.length) body.append(el("div", "muted", translate("서버별 구독 정보가 없습니다 (usage_command 설정 필요).")));
   return p;
 }
 const OS_ICON = {
@@ -377,50 +392,50 @@ const CLI_NAMES = { claude: "Claude", codex: "Codex", grok: "Grok", agy: "Antigr
 function toolsPanel(entries) {
   const data = entries.find((e) => e.plugin_id === "dev.hyunwook.home-monitor" && e.slot === "page" && e.id === "tools")?.payload;
   const hosts = (data?.hosts || []).filter((h) => Object.keys(h.clis || {}).length);
-  const [p, body] = panel("tools", "도구 (MCP·스킬)", data ? `${(data.observed || "").slice(11, 16)} UTC 기준` : "수집 중");
+  const [p, body] = panel("tools", translate("도구 (MCP·스킬)"), data ? translate("{p0} UTC 기준", {p0: (data.observed || "").slice(11, 16)}) : translate("수집 중"));
   if (data?.error) body.append(el("div", "bad", data.error));
   for (const h of hosts) {
     const box = el("div", "host"); box.append(hostHead(h.host));
     for (const [cli, v] of Object.entries(h.clis)) {
       const row = el("div", "tool-row");
-      const head = el("div", "kv"); head.append(el("b", null, CLI_NAMES[cli] || cli), el("span", "amount", `MCP ${v.mcp.length} · 스킬 ${v.skills.length}`));
+      const head = el("div", "kv"); head.append(el("b", null, CLI_NAMES[cli] || cli), el("span", "amount", translate("MCP {p0} · 스킬 {p1}", {p0: v.mcp.length, p1: v.skills.length})));
       row.append(head);
       const chips = el("div", "chips");
       for (const m of v.mcp) { const c = el("span", "pill" + (m.status === "ok" || m.status === "configured" ? "" : " warn"), m.name); c.title = m.status; chips.append(c); }
       row.append(chips);
-      const det = document.createElement("details"); det.append(el("summary", "muted", `스킬 ${v.skills.length}개 보기`));
+      const det = document.createElement("details"); det.append(el("summary", "muted", translate("스킬 {p0}개 보기", {p0: v.skills.length})));
       const list = el("div", "chips"); for (const s of v.skills) list.append(el("span", "pill skill", s)); det.append(list);
       row.append(det);
       box.append(row);
     }
     body.append(box);
   }
-  if (!hosts.length) body.append(el("div", "muted", "아직 목록이 없습니다 (tools_command 설정, 첫 수집은 1~2분)."));
+  if (!hosts.length) body.append(el("div", "muted", translate("아직 목록이 없습니다 (tools_command 설정, 첫 수집은 1~2분).")));
   return p;
 }
-const PROG_HEALTH = { failed: ["실패", "bad"], down: ["멈춤", "bad"], ok: ["정상", ""], off: ["꺼짐", "muted"] };
+function PROG_HEALTH() { return { failed: [translate("실패"), "bad"], down: [translate("멈춤"), "bad"], ok: [translate("정상"), ""], off: [translate("꺼짐"), "muted"] }; }
 function progWhen(p) {
-  const kst = (iso) => new Date(iso).toLocaleTimeString("ko-KR", { timeZone: "Asia/Seoul", hour: "2-digit", minute: "2-digit" });
-  if (p.health === "off") return "꺼짐";
-  if (p.running) return p.pid ? `실행 중 · PID ${p.pid}` : "실행 중";
-  if (p.health === "failed") return `종료 코드 ${p.lastExit}`;
-  if (p.next) return `다음 ${kst(p.next)}`;
-  return p.kind === "service" ? "대기" : p.schedule || "대기";
+  const kst = (iso) => new Date(iso).toLocaleTimeString(language === "en" ? "en-US" : "ko-KR", { timeZone: "Asia/Seoul", hour: "2-digit", minute: "2-digit" });
+  if (p.health === "off") return translate("꺼짐");
+  if (p.running) return p.pid ? translate("실행 중 · PID {p0}", {p0: p.pid}) : translate("실행 중");
+  if (p.health === "failed") return translate("종료 코드 {p0}", {p0: p.lastExit});
+  if (p.next) return translate("다음 {p0}", {p0: kst(p.next)});
+  return p.kind === "service" ? translate("대기") : p.schedule || translate("대기");
 }
 function programsPanel(entries) {
   const data = entries.find((e) => e.plugin_id === "dev.hyunwook.home-monitor" && e.slot === "page" && e.id === "programs")?.payload;
   const s = data?.summary || {};
   const problems = (s.failed || 0) + (s.down || 0);
-  const [p, body] = panel("programs", "프로그램", data && !data.error ? `문제 ${problems} · 정상 ${s.ok || 0} · 꺼짐 ${s.off || 0}` : "수집 중");
+  const [p, body] = panel("programs", translate("프로그램"), data && !data.error ? translate("문제 {p0} · 정상 {p1} · 꺼짐 {p2}", {p0: problems, p1: s.ok || 0, p2: s.off || 0}) : translate("수집 중"));
   if (data?.error) body.append(el("div", "bad", data.error));
-  if (problems) body.append(el("div", "row warn", `문제 ${problems}개: ` + (data.hosts || []).flatMap((h) => (h.programs || [])
+  if (problems) body.append(el("div", "row warn", translate("문제 {p0}개: ", {p0: problems}) + (data.hosts || []).flatMap((h) => (h.programs || [])
     .filter((x) => x.health === "failed" || x.health === "down").map((x) => `${h.host} ${x.name}`)).join(", ")));
   for (const h of data?.hosts || []) {
     if (h.skipped) continue;
     const box = el("div", "host");
-    box.append(hostHead(h.host, h.os, h.error ? "연결 실패" : `${(h.programs || []).length}개`, h.error ? "bad" : "muted"));
+    box.append(hostHead(h.host, h.os, h.error ? translate("연결 실패") : translate("{p0}개", {p0: (h.programs || []).length}), h.error ? "bad" : "muted"));
     for (const x of h.programs || []) {
-      const [label, tone] = PROG_HEALTH[x.health] || [x.health, ""];
+      const [label, tone] = PROG_HEALTH()[x.health] || [x.health, ""];
       const r = el("div", "row");
       r.append(el("span", "tool", label), el("span", "title", x.name || x.id), el("span", "st " + tone, progWhen(x)));
       r.title = `${x.id}\n${x.schedule || ""}${x.command ? "\n" + x.command : ""}`;
@@ -429,7 +444,7 @@ function programsPanel(entries) {
     }
     body.append(box);
   }
-  if (!data) body.append(el("div", "muted", "아직 목록이 없습니다 (programs_command 설정, 첫 수집은 1분 안)."));
+  if (!data) body.append(el("div", "muted", translate("아직 목록이 없습니다 (programs_command 설정, 첫 수집은 1분 안).")));
   return p;
 }
 function render(entries) {
@@ -446,7 +461,7 @@ function render(entries) {
   }
   const build = { sessions: sessionsPanel, servers: serversPanel, subs: subsPanel, tools: toolsPanel, programs: programsPanel };
   for (const id of prefs.order) if (!prefs.hidden.includes(id)) board.append(build[id](last));
-  document.getElementById("sub").textContent = `15초마다 갱신 · 제목을 끌어 순서 변경 · 넓게로 두 칸 차지`;
+  document.getElementById("sub").textContent = translate("15초마다 갱신 · 제목을 끌어 순서 변경 · 넓게로 두 칸 차지", {});
 }
 </script>
 <script>
@@ -479,9 +494,10 @@ function render(entries) {
     try {
       const body = await call("plugins.uiState");
       const entries = Array.isArray(body) ? body : body.entries || [];
+      setLocale(entries);
       render(entries);
     } catch (err) {
-      document.getElementById("sub").textContent = `불러오지 못했습니다: ${err.message || err.code || err}`;
+      document.getElementById("sub").textContent = translate("불러오지 못했습니다: {p0}", {p0: err.message || err.code || err});
     }
   }
   request({ method: "ready", params: { nonce: location.hash.slice(1) } }, (m) => parent.postMessage(m, "*", [port2])).then(load);

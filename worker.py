@@ -20,6 +20,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from i18n import MESSAGES, get_language, set_language, t as tr
+
 RPC_TIMEOUT = 10.0
 HTTP_TIMEOUT = 10.0
 WARN, DANGER = 80.0, 92.0
@@ -69,7 +71,19 @@ def send(obj: dict[str, Any]) -> None:
         sys.stdout.flush()
 
 
+def page_payload(page_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    """Expose the selected language through the existing self-contained page bridge."""
+    localized = {**payload, "language": get_language()}
+    if page_id == "dashboard":
+        # Other pages read this one shared catalog via plugins.uiState. No
+        # undeclared asset URLs, network translation service, or DOM HTML writes.
+        localized["messages"] = MESSAGES if get_language() == "en" else {}
+    return localized
+
+
 def call(method: str, params: dict[str, Any]) -> Any:
+    if method == "ui.state.set" and params.get("slot") == "page":
+        params = {**params, "payload": page_payload(params["id"], params["payload"])}
     msg_id = next(_ids)
     slot: dict[str, Any] = {"event": threading.Event()}
     with _pending_lock:
@@ -243,15 +257,15 @@ def wake_host(host: str) -> None:
     if host not in allowed or "{host}" not in template:
         log(f"wake refused for {host!r}")
         return
-    _wake_notes[host] = "켜는 중… " + datetime.now(timezone.utc).astimezone().strftime("%H:%M:%S")
+    _wake_notes[host] = tr("켜는 중… ") + datetime.now(timezone.utc).astimezone().strftime("%H:%M:%S")
     _wake.set()
     try:
         args = [os.path.expanduser(a).replace("{host}", host) for a in shlex.split(template)]
         done = subprocess.run(args, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=300)
         _wake_notes[host] = (done.stdout or done.stderr).strip().splitlines()[-1][:120] if (done.stdout or done.stderr) \
-            else f"종료 코드 {done.returncode}"
+            else tr("종료 코드 {p0}", p0=done.returncode)
     except Exception as exc:  # noqa: BLE001
-        _wake_notes[host] = f"실패: {exc}"[:120]
+        _wake_notes[host] = tr("실패: {p0}", p0=exc)[:120]
     _wake.set()
 
 
@@ -277,14 +291,14 @@ def power_switch(action: str) -> None:
     if action not in ("on", "off") or "{action}" not in template:
         log(f"power switch refused: {action!r}")
         return
-    _power_note["text"] = ("켜는 중… " if action == "on" else "끄는 중… ") + datetime.now(timezone.utc).astimezone().strftime("%H:%M:%S")
+    _power_note["text"] = (tr("켜는 중… ") if action == "on" else tr("끄는 중… ")) + datetime.now(timezone.utc).astimezone().strftime("%H:%M:%S")
     _wake.set()
     try:
         args = [os.path.expanduser(a).replace("{action}", action) for a in shlex.split(template)]
         done = subprocess.run(args, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=60)
         _power_note["text"] = ((done.stdout or done.stderr).strip().splitlines() or [""])[-1][:120]
     except Exception as exc:  # noqa: BLE001
-        _power_note["text"] = f"실패: {exc}"[:120]
+        _power_note["text"] = tr("실패: {p0}", p0=exc)[:120]
     _wake.set()
 
 
@@ -304,9 +318,9 @@ def run_template(template: str, values: dict[str, str], key: str, busy: str) -> 
             args.append(a)
         done = subprocess.run(args, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=300)
         lines = (done.stdout or done.stderr).strip().splitlines()
-        _notes[key] = lines[-1][:140] if lines else f"종료 코드 {done.returncode}"
+        _notes[key] = lines[-1][:140] if lines else tr("종료 코드 {p0}", p0=done.returncode)
     except Exception as exc:  # noqa: BLE001
-        _notes[key] = f"실패: {exc}"[:140]
+        _notes[key] = tr("실패: {p0}", p0=exc)[:140]
     _wake.set()
 
 
@@ -316,7 +330,7 @@ def control(kind: str, params: dict[str, Any]) -> None:
     if kind == "vpn_switch":
         template = str(setting("vpn_switch_command", "") or "")
         if action in ("up", "down") and "{action}" in template:
-            run_template(template, {"action": action}, "vpn", "연결하는 중…" if action == "up" else "끊는 중…")
+            run_template(template, {"action": action}, "vpn", tr("연결하는 중…") if action == "up" else tr("끊는 중…"))
         else:
             log(f"vpn switch refused: {action!r}")
         return
@@ -327,12 +341,12 @@ def control(kind: str, params: dict[str, Any]) -> None:
     if action == "on":
         template = str(setting("wake_command", "") or "")
         if "{host}" in template:
-            run_template(template, {"host": host}, "host:" + host, "켜는 중…")
+            run_template(template, {"host": host}, "host:" + host, tr("켜는 중…"))
     elif action in ("off", "cancel"):
         template = str(setting("shutdown_command", "") or "")
         if "{host}" in template and "{action}" in template:
             run_template(template, {"host": host, "action": action}, "host:" + host,
-                         "끄는 중…" if action == "off" else "취소하는 중…")
+                         tr("끄는 중…") if action == "off" else tr("취소하는 중…"))
     else:
         log(f"host power refused: {action!r}")
 
@@ -412,23 +426,23 @@ def usage_blocks(usage: dict[str, Any]) -> list[dict[str, Any]]:
             rows.append({"kind": "row", "prefix": TOOL_NAME.get(p.get("tool"), p.get("tool")),
                          "label": p.get("plan") or "-",
                          "sublabel": " · ".join(filter(None, [p.get("account"), detail])),
-                         "value": f"{top:.0f}%" if top is not None else STATUS_KO.get(p.get("status"), p.get("status")),
+                         "value": f"{top:.0f}%" if top is not None else tr(STATUS_KO.get(p.get("status"), p.get("status"))),
                          "value_tone": tone(top, 70, 90) if top is not None else
                          ("danger" if p.get("status") in ("expired", "failed") else "neutral"),
                          "tooltip": p.get("reason") or None})
         if host.get("error"):
             rows.append({"kind": "note", "tone": "danger", "text": host["error"]})
         if not rows:
-            rows.append({"kind": "note", "text": "로그인된 구독 없음"})
-        blocks.append({"kind": "section", "title": f"구독 · {host.get('host')}", "boxed": True, "collapsible": True,
+            rows.append({"kind": "note", "text": tr("로그인된 구독 없음")})
+        blocks.append({"kind": "section", "title": tr("구독 · {p0}", p0=host.get('host')), "boxed": True, "collapsible": True,
                        "children": rows})
     return blocks
 
 
 def host_block(s: dict[str, Any]) -> dict[str, Any]:
     if not s["up"]:
-        return {"kind": "section", "title": s["name"], "boxed": True, "value": "연결 끊김", "value_tone": "danger",
-                "children": [{"kind": "note", "tone": "danger", "text": s["error"] or "측정값 없음"}]}
+        return {"kind": "section", "title": s["name"], "boxed": True, "value": tr("연결 끊김"), "value_tone": "danger",
+                "children": [{"kind": "note", "tone": "danger", "text": s["error"] or tr("측정값 없음")}]}
     worst = max((s["cpu"] or 0, s["mem"] or 0), default=0)
     head_tone = "danger" if tone(s["disk"], DISK_WARN, DISK_DANGER) == "danger" or tone(worst) == "danger" \
         else "warn" if tone(s["disk"], DISK_WARN, DISK_DANGER) == "warn" or tone(worst) == "warn" else "success"
@@ -436,16 +450,16 @@ def host_block(s: dict[str, Any]) -> dict[str, Any]:
     bands = [{"at": WARN, "tone": "warn"}, {"at": DANGER, "tone": "danger"}]
     children: list[dict[str, Any]] = [
         {"kind": "sparkline", "values": s["cpuSeries"][-96:] or [0], "max": 100, "bands": bands,
-         "caption": "CPU 24시간"},
+         "caption": tr("CPU 24시간")},
         {"kind": "sparkline", "values": s["memSeries"][-96:] or [0], "max": 100, "bands": bands,
-         "caption": "메모리 24시간"},
-        {"kind": "row", "prefix": "네트워크", "label": f"↓ {human_bytes(s['rx'], True)}  ↑ {human_bytes(s['tx'], True)}",
+         "caption": tr("메모리 24시간")},
+        {"kind": "row", "prefix": tr("네트워크"), "label": f"↓ {human_bytes(s['rx'], True)}  ↑ {human_bytes(s['tx'], True)}",
          "mono": True},
-        {"kind": "sparkline", "values": s["rxSeries"][-96:] or [0], "caption": "받기 24시간"},
-        {"kind": "sparkline", "values": s["txSeries"][-96:] or [0], "caption": "보내기 24시간"},
+        {"kind": "sparkline", "values": s["rxSeries"][-96:] or [0], "caption": tr("받기 24시간")},
+        {"kind": "sparkline", "values": s["txSeries"][-96:] or [0], "caption": tr("보내기 24시간")},
     ]
     for d in s["disks"]:
-        children.append({"kind": "row", "prefix": "디스크", "label": d["mount"],
+        children.append({"kind": "row", "prefix": tr("디스크"), "label": d["mount"],
                          "sublabel": f"{human_bytes(d['used'])} / {human_bytes(d['total'])}",
                          "value": fmt(d["pct"]), "value_tone": tone(d["pct"], DISK_WARN, DISK_DANGER), "mono": True})
         if d["pct"] is not None:
@@ -454,13 +468,17 @@ def host_block(s: dict[str, Any]) -> dict[str, Any]:
                 {"value": max(0.0, 100 - d["pct"]), "tone": "neutral"}]})
     return {"kind": "section", "title": s["name"], "boxed": True, "collapsible": True,
             "collapsed": head_tone == "success",
-            "value": f"CPU {fmt(s['cpu'])} · 메모리 {fmt(s['mem'])} · 디스크 {fmt(s['disk'])} · ↓{human_bytes(s['rx'], True)}",
+            "value": tr("CPU {p0} · 메모리 {p1} · 디스크 {p2} · ↓{p3}", p0=fmt(s['cpu']), p1=fmt(s['mem']), p2=fmt(s['disk']), p3=human_bytes(s['rx'], True)),
             "value_tone": head_tone, "children": children}
 
 
-DASHBOARD_LINK = {"kind": "action", "label": "대시보드 열기", "href": "/plugins/dev.hyunwook.home-monitor/dashboard",
+def dashboard_link() -> dict[str, Any]:
+    return {"kind": "action", "label": tr("대시보드 열기"), "href": "/plugins/dev.hyunwook.home-monitor/dashboard",
                   "icon": "layout-dashboard", "variant": "primary"}
-HOME_PANE = {"title": "대시보드", "icon": "layout-dashboard", "blocks": [DASHBOARD_LINK]}
+
+
+def home_pane() -> dict[str, Any]:
+    return {"title": tr("대시보드"), "icon": "layout-dashboard", "blocks": [dashboard_link()]}
 
 
 OS_ICON = {"darwin": "apple", "linux": "terminal", "windows": "grid-2x2"}  # lucide has no penguin or Windows logo
@@ -485,23 +503,23 @@ def status_bar(hosts: list[dict[str, Any]], usage: dict[str, Any] | None,
         worst = max((v for v in (h["cpu"], h["mem"], h["disk"]) if v is not None), default=None)
         lines = [f"{h['name']} ({OS_NAME.get(os_key, h.get('os') or '?')})"]
         if h["up"]:
-            lines.append(f"CPU {h['cpu'] or 0:.0f}% · 메모리 {h['mem'] or 0:.0f}% · 디스크 최대 {h['disk'] or 0:.0f}%")
+            lines.append(tr("CPU {p0:.0f}% · 메모리 {p1:.0f}% · 디스크 최대 {p2:.0f}%", p0=h['cpu'] or 0, p1=h['mem'] or 0, p2=h['disk'] or 0))
         else:
-            lines.append("연결 끊김" + (f": {h['error']}" if h.get("error") else ""))
+            lines.append(tr("연결 끊김") + (f": {h['error']}" if h.get("error") else ""))
         for pr in providers[h["name"]]:
             used = [w for w in pr.get("windows") or [] if isinstance(w.get("used"), (int, float))]
             lines.append(f"{TOOL_NAME.get(pr.get('tool'), pr.get('tool'))}: " +
-                         (" · ".join(f"{w.get('label')} {w['used']:.0f}%" for w in used) or "미확인"))
-        items.append({"text": f"{h['cpu'] or 0:.0f}%" if h["up"] else "꺼짐",
+                         (" · ".join(f"{w.get('label')} {w['used']:.0f}%" for w in used) or tr("미확인")))
+        items.append({"text": f"{h['cpu'] or 0:.0f}%" if h["up"] else tr("꺼짐"),
                       "icon": OS_ICON.get(os_key, "server"), "tone": tone(worst) if h["up"] else "danger",
-                      "group": "서버", "tooltip": "\n".join(lines + ["(누르면 다음 서버)"]), "href": DASHBOARD_HREF})
+                      "group": tr("서버"), "tooltip": "\n".join(lines + [tr("(누르면 다음 서버)")]), "href": DASHBOARD_HREF})
     if rest:
         up = sum(1 for h in rest if h["up"])
         worst = max((v for h in rest if h["up"] for v in (h["cpu"], h["mem"], h["disk"]) if v is not None), default=None)
-        items.append({"text": f"{up}/{len(rest)}", "icon": "server", "group": "서버",
+        items.append({"text": f"{up}/{len(rest)}", "icon": "server", "group": tr("서버"),
                       "tone": "danger" if up < len(rest) else tone(worst),
-                      "tooltip": "다른 서버\n" + "\n".join(f"{h['name']}: " + (f"CPU {h['cpu'] or 0:.0f}% · 메모리 {h['mem'] or 0:.0f}%"
-                                                                if h["up"] else "연결 끊김") for h in rest),
+                      "tooltip": tr("다른 서버\n") + "\n".join(f"{h['name']}: " + (tr("CPU {p0:.0f}% · 메모리 {p1:.0f}%", p0=h['cpu'] or 0, p1=h['mem'] or 0)
+                                                                if h["up"] else tr("연결 끊김")) for h in rest),
                       "href": DASHBOARD_HREF})
     # The bar above the right panel is narrow, so hosts and subscriptions are two chips that cycle on click; the
     # first host chip summarises the whole fleet.
@@ -510,11 +528,10 @@ def status_bar(hosts: list[dict[str, Any]], usage: dict[str, Any] | None,
         worst_host = max(hosts, key=lambda h: (not h["up"], max((v for v in (h["cpu"], h["mem"], h["disk"])
                                                                 if v is not None), default=0)))
         worst = max((v for h in hosts if h["up"] for v in (h["cpu"], h["mem"], h["disk"]) if v is not None), default=None)
-        items.insert(0, {"text": f"{up}/{len(hosts)}", "icon": "server", "group": "서버",
+        items.insert(0, {"text": f"{up}/{len(hosts)}", "icon": "server", "group": tr("서버"),
                          "tone": "danger" if up < len(hosts) else tone(worst), "href": DASHBOARD_HREF,
-                         "tooltip": "\n".join(f"{h['name']}: " + (f"CPU {h['cpu'] or 0:.0f}% · 메모리 {h['mem'] or 0:.0f}% · "
-                                                                  f"디스크 {h['disk'] or 0:.0f}%" if h["up"] else "연결 끊김")
-                                              for h in hosts) + f"\n가장 바쁜 서버: {worst_host['name']}\n(누르면 서버별 CPU, 마우스를 올리면 자세히)"})
+                         "tooltip": "\n".join(f"{h['name']}: " + (tr("CPU {p0:.0f}% · 메모리 {p1:.0f}% · 디스크 {p2:.0f}%", p0=h['cpu'] or 0, p1=h['mem'] or 0, p2=h['disk'] or 0) if h["up"] else tr("연결 끊김"))
+                                              for h in hosts) + tr("\n가장 바쁜 서버: {p0}\n(누르면 서버별 CPU, 마우스를 올리면 자세히)", p0=worst_host['name'])})
     windows = []
     for host, prs in providers.items():
         for pr in prs:
@@ -523,11 +540,11 @@ def status_bar(hosts: list[dict[str, Any]], usage: dict[str, Any] | None,
                 top = max(used, key=lambda w: w["used"])
                 windows.append((top["used"], host, TOOL_NAME.get(pr.get("tool"), pr.get("tool")), top.get("label")))
     for used, host, tool, label in sorted(windows, key=lambda w: -w[0]):
-        items.append({"text": f"{used:.0f}%", "icon": "gauge", "tone": tone(used, 70, 90), "group": "구독",
-                      "tooltip": f"{host} {tool} {label} {used:.0f}% (누르면 다음 구독)", "href": DASHBOARD_HREF})
+        items.append({"text": f"{used:.0f}%", "icon": "gauge", "tone": tone(used, 70, 90), "group": tr("구독"),
+                      "tooltip": tr("{p0} {p1} {p2} {p3:.0f}% (누르면 다음 구독)", p0=host, p1=tool, p2=label, p3=used), "href": DASHBOARD_HREF})
     if vpn and vpn.get("state") == "CONNECTED":
         items.append({"icon": "shield-check", "tone": "info", "href": DASHBOARD_HREF,
-                      "tooltip": "회사 VPN 연결됨" + (f" · {vpn['expires']} 자동 해제" if vpn.get("expires") else "")})
+                      "tooltip": tr("회사 VPN 연결됨") + (tr(" · {p0} 자동 해제", p0=vpn['expires']) if vpn.get("expires") else "")})
     return {"items": items}
 
 
@@ -540,27 +557,27 @@ def build(data: dict[str, Any], usage: dict[str, Any] | None = None,
     problems = [h["name"] for h in hosts if not h["up"]] + [
         f"{h['name']} {d['mount']} {d['pct']:.0f}%" for h in hosts if h["up"] for d in h["disks"]
         if (d["pct"] or 0) >= DISK_WARN] + [
-        f"{h['name']} 메모리 {h['mem']:.0f}%" for h in hosts if h["up"] and (h["mem"] or 0) >= DANGER]
+        tr("{p0} 메모리 {p1:.0f}%", p0=h['name'], p1=h['mem']) for h in hosts if h["up"] and (h["mem"] or 0) >= DANGER]
     now = datetime.now(timezone.utc).astimezone().strftime("%H:%M:%S")
-    blocks: list[dict[str, Any]] = [DASHBOARD_LINK]
+    blocks: list[dict[str, Any]] = [dashboard_link()]
     if problems:
         blocks.append({"kind": "callout", "tone": "danger" if up < len(hosts) else "warn",
-                       "title": "확인할 서버가 있습니다", "detail": " · ".join(problems)})
+                       "title": tr("확인할 서버가 있습니다"), "detail": " · ".join(problems)})
     blocks.extend(host_block(h) for h in hosts)
-    blocks.append({"kind": "action", "label": "지금 새로고침", "method": "refresh", "icon": "refresh-cw"})
-    servers = {"title": "서버 상태", "icon": "activity", "blocks": blocks,
-               "footer": {"text": f"갱신 {now}", "value": f"서버 {up}/{len(hosts)}",
+    blocks.append({"kind": "action", "label": tr("지금 새로고침"), "method": "refresh", "icon": "refresh-cw"})
+    servers = {"title": tr("서버 상태"), "icon": "activity", "blocks": blocks,
+               "footer": {"text": tr("갱신 {p0}", p0=now), "value": tr("서버 {p0}/{p1}", p0=up, p1=len(hosts)),
                           "tone": "success" if up == len(hosts) else "danger", "icon": "refresh-cw"}}
     if usage:
-        sub_blocks = [DASHBOARD_LINK] + usage_blocks(usage)
+        sub_blocks = [dashboard_link()] + usage_blocks(usage)
         accounts = sum(len(h.get("providers") or []) for h in usage.get("hosts") or [])
         hot = [f"{h.get('host')} {TOOL_NAME.get(p.get('tool'), p.get('tool'))} {w['used']:.0f}%"
                for h in usage.get("hosts") or [] for p in h.get("providers") or [] for w in p.get("windows") or []
                if isinstance(w.get("used"), (int, float)) and w["used"] >= 80]
         if hot:
-            sub_blocks.insert(1, {"kind": "callout", "tone": "warn", "title": "한도에 가까운 구독",
+            sub_blocks.insert(1, {"kind": "callout", "tone": "warn", "title": tr("한도에 가까운 구독"),
                                   "detail": " · ".join(hot)})
-        footer_value = f"계정 {accounts}개"
+        footer_value = tr("계정 {p0}개", p0=accounts)
     else:
         rows = []
         for sub in subs:
@@ -569,12 +586,12 @@ def build(data: dict[str, Any], usage: dict[str, Any] | None = None,
             rows.append({"kind": "row", "prefix": sub["tool"], "label": sub["plan"] or "-",
                          "sublabel": " · ".join(f"{w.get('label')} {w.get('usedPercent', '?')}%" for w in windows),
                          "value": "-" if top is None else f"{top:.0f}%", "value_tone": tone(top, 70, 90)})
-        sub_blocks = [{"kind": "section", "title": "구독 사용량", "boxed": True, "children": rows or
-                       [{"kind": "note", "text": "확인된 구독이 없습니다."}]}]
-        footer_value = f"구독 {len(subs)}개"
-    sub_blocks.append({"kind": "action", "label": "지금 새로고침", "method": "refresh", "icon": "refresh-cw"})
-    subscriptions_pane = {"title": "구독 상태", "icon": "gauge", "blocks": sub_blocks,
-                          "footer": {"text": f"갱신 {now}", "value": footer_value, "tone": "neutral"}}
+        sub_blocks = [{"kind": "section", "title": tr("구독 사용량"), "boxed": True, "children": rows or
+                       [{"kind": "note", "text": tr("확인된 구독이 없습니다.")}]}]
+        footer_value = tr("구독 {p0}개", p0=len(subs))
+    sub_blocks.append({"kind": "action", "label": tr("지금 새로고침"), "method": "refresh", "icon": "refresh-cw"})
+    subscriptions_pane = {"title": tr("구독 상태"), "icon": "gauge", "blocks": sub_blocks,
+                          "footer": {"text": tr("갱신 {p0}", p0=now), "value": footer_value, "tone": "neutral"}}
     return {
         "servers": servers, "subscriptions": subscriptions_pane,
         "monitor": {"observedAt": data.get("observedAt"), "updated": now, "hosts": hosts, "vpn": vpn,
@@ -633,6 +650,7 @@ def push_history() -> None:
 
 
 def refresh() -> int:
+    set_language(setting("language", "ko"))
     url = setting("source_url", "http://127.0.0.1:4317/api/dashboard?range=24h")
     try:
         data = fetch(url)
@@ -642,15 +660,15 @@ def refresh() -> int:
                     fetch_vpn(str(setting("vpn_command", "") or "")),
                     fetch_power(str(setting("power_command", "") or "")))
     except Exception as exc:  # noqa: BLE001
-        failed = {"kind": "callout", "tone": "danger", "title": "수집기에 연결할 수 없습니다", "detail": f"{url}: {exc}"}
-        out = {"servers": {"title": "서버 상태", "icon": "activity", "blocks": [failed],
-                           "footer": {"text": "갱신 실패", "tone": "danger"}},
-               "subscriptions": {"title": "구독 상태", "icon": "gauge", "blocks": [failed],
-                                 "footer": {"text": "갱신 실패", "tone": "danger"}},
+        failed = {"kind": "callout", "tone": "danger", "title": tr("수집기에 연결할 수 없습니다"), "detail": f"{url}: {exc}"}
+        out = {"servers": {"title": tr("서버 상태"), "icon": "activity", "blocks": [failed],
+                           "footer": {"text": tr("갱신 실패"), "tone": "danger"}},
+               "subscriptions": {"title": tr("구독 상태"), "icon": "gauge", "blocks": [failed],
+                                 "footer": {"text": tr("갱신 실패"), "tone": "danger"}},
                "monitor": {"error": str(exc), "hosts": []},
                "subscriptions_page": {"error": str(exc), "subscriptions": [], "usage": None}}
     # The home screen only links to the dashboard page; the panes' content lives in the pages.
-    call("ui.state.set", {"slot": "home-pane", "id": "servers", "payload": HOME_PANE})
+    call("ui.state.set", {"slot": "home-pane", "id": "servers", "payload": home_pane()})
     call("ui.state.set", {"slot": "page", "id": "dashboard", "payload": {"layout": load_layout()}})
     call("ui.state.set", {"slot": "page", "id": "monitor", "payload": out["monitor"]})
     call("ui.state.set", {"slot": "page", "id": "subscriptions", "payload": out["subscriptions_page"]})

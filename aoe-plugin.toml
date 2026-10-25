@@ -4,94 +4,102 @@ name = "Home Monitor"
 version = "0.13.1"
 api_version = 16
 aoe_version = ">=1.20.0, <2.0.0"
-description = "홈서버 전체의 CPU·메모리·디스크 상태, 구독 사용량, 등록한 프로그램 상태를 대시보드 패널과 페이지로 보여줍니다."
+description = "Server health, subscription usage, and registered program status in dashboard panels and pages.\n홈서버 전체의 CPU·메모리·디스크 상태, 구독 사용량, 등록한 프로그램 상태를 대시보드 패널과 페이지로 보여줍니다."
 
 # net: reads the collector's dashboard JSON. process.spawn: optional usage_command. fs.write: dashboard layout in ~/.cache/home-ai. session.read: the page reads its pushed state through the bridge.
 capabilities = ["runtime.worker", "net", "session.read", "process.spawn", "fs.write"]
 
 [[commands]]
 id = "refresh"
-title = "Home Monitor: 지금 새로고침"
+title = "Home Monitor: Refresh now / 지금 새로고침"
+
+[[settings]]
+key = "language"
+label = "Language / 언어"
+description = "English: en · 한국어: ko. Applies to plugin panels, status messages, and pages. / 패널, 상태 메시지 및 페이지의 표시 언어입니다."
+type = "select"
+options = ["ko", "en"]
+default = "ko"
 
 [[settings]]
 key = "source_url"
-label = "수집기 주소"
-description = "서버 측정값을 돌려주는 JSON 주소 (Home AI Office 수집기)."
+label = "Collector URL / 수집기 주소"
+description = "JSON endpoint returning server readings (Home AI Office collector).\n서버 측정값을 돌려주는 JSON 주소 (Home AI Office 수집기)."
 type = "string"
 default = "http://127.0.0.1:4317/api/dashboard?range=24h"
 
 [[settings]]
 key = "usage_command"
-label = "서버별 구독 사용량 명령 (선택)"
-description = "{\"hosts\": [{\"host\", \"providers\": [{\"tool\", \"plan\", \"account\", \"status\", \"windows\": [{\"label\", \"used\"}]}]}]} JSON을 출력하는 명령. 비우면 수집기의 구독 정보를 씁니다."
+label = "Per-server subscription usage command (optional) / 서버별 구독 사용량 명령 (선택)"
+description = "Command returning a hosts/providers/windows JSON object. Leave empty to use subscription data from the collector.\n{\"hosts\": [{\"host\", \"providers\": [{\"tool\", \"plan\", \"account\", \"status\", \"windows\": [{\"label\", \"used\"}]}]}]} JSON을 출력하는 명령. 비우면 수집기의 구독 정보를 씁니다."
 type = "string"
 default = ""
 
 [[settings]]
 key = "vpn_command"
-label = "VPN 상태 명령 (선택)"
-description = "state: CONNECTED (이름) / started: / expires: / route IP -> 인터페이스 줄을 출력하는 명령. 연결되면 0으로 끝납니다."
+label = "VPN status command (optional) / VPN 상태 명령 (선택)"
+description = "Command returning state: CONNECTED (name), started:, expires:, and route IP -> interface lines. Exit with 0 when connected.\nstate: CONNECTED (이름) / started: / expires: / route IP -> 인터페이스 줄을 출력하는 명령. 연결되면 0으로 끝납니다."
 type = "string"
 default = ""
 
 [[settings]]
 key = "wake_hosts"
-label = "켜기 버튼을 보일 서버"
-description = "수집기의 서버 id. 꺼져 있으면 대시보드에 켜기 버튼이 생깁니다."
+label = "Servers with a wake button / 켜기 버튼을 보일 서버"
+description = "Collector server IDs. Offline servers in this list get a wake button on the dashboard.\n수집기의 서버 id. 꺼져 있으면 대시보드에 켜기 버튼이 생깁니다."
 type = "string_list"
 
 [[settings]]
 key = "wake_command"
-label = "켜기 명령"
-description = "{host} 자리에 서버 id가 들어갑니다. 예: ~/.local/bin/home-wake {host}"
+label = "Wake command / 켜기 명령"
+description = "{host} is replaced with the server ID. Example: ~/.local/bin/home-wake {host}\n{host} 자리에 서버 id가 들어갑니다. 예: ~/.local/bin/home-wake {host}"
 type = "string"
 default = ""
 
 [[settings]]
 key = "power_command"
-label = "스마트 멀티탭 상태 명령 (선택)"
-description = "switch, power_w, today_wh, month_wh, history를 담은 JSON을 출력하는 명령"
+label = "Power strip status command (optional) / 스마트 멀티탭 상태 명령 (선택)"
+description = "Command returning JSON with switch, power_w, today_wh, month_wh, and history.\nswitch, power_w, today_wh, month_wh, history를 담은 JSON을 출력하는 명령"
 type = "string"
 default = ""
 
 [[settings]]
 key = "power_switch_command"
-label = "스마트 멀티탭 켜기·끄기 명령 (선택)"
-description = "{action} 자리에 on 또는 off가 들어갑니다. 예: ~/.local/bin/home-power {action}"
+label = "Power strip on/off command (optional) / 스마트 멀티탭 켜기·끄기 명령 (선택)"
+description = "{action} is replaced with on or off. Example: ~/.local/bin/home-power {action}\n{action} 자리에 on 또는 off가 들어갑니다. 예: ~/.local/bin/home-power {action}"
 type = "string"
 default = ""
 
 [[settings]]
 key = "vpn_switch_command"
-label = "VPN 연결·해제 명령 (선택)"
-description = "{action} 자리에 up 또는 down이 들어갑니다. 예: ~/.local/bin/company-vpn {action}"
+label = "VPN connect/disconnect command (optional) / VPN 연결·해제 명령 (선택)"
+description = "{action} is replaced with up or down. Example: ~/.local/bin/company-vpn {action}\n{action} 자리에 up 또는 down이 들어갑니다. 예: ~/.local/bin/company-vpn {action}"
 type = "string"
 default = ""
 
 [[settings]]
 key = "shutdown_command"
-label = "서버 끄기 명령 (선택)"
-description = "{host}와 {action}(off 또는 cancel)이 들어갑니다. 예: ~/.local/bin/home-shutdown {host} {action}. 켜기 버튼을 보이는 서버(wake_hosts)에만 쓰입니다."
+label = "Server shutdown command (optional) / 서버 끄기 명령 (선택)"
+description = "Uses {host} and {action} (off or cancel). Example: ~/.local/bin/home-shutdown {host} {action}. Only applies to servers listed in wake_hosts.\n{host}와 {action}(off 또는 cancel)이 들어갑니다. 예: ~/.local/bin/home-shutdown {host} {action}. 켜기 버튼을 보이는 서버(wake_hosts)에만 쓰입니다."
 type = "string"
 default = ""
 
 [[settings]]
 key = "tools_command"
-label = "MCP·스킬 목록 명령 (선택)"
-description = "{\"hosts\": [{\"host\", \"clis\": {\"claude\": {\"mcp\": [{\"name\", \"status\"}], \"skills\": [...]}}}]} JSON을 출력하는 명령. 10분마다 다시 읽습니다."
+label = "MCP and skills inventory command (optional) / MCP·스킬 목록 명령 (선택)"
+description = "Command returning hosts/clis/mcp/skills JSON. Read again every 10 minutes.\n{\"hosts\": [{\"host\", \"clis\": {\"claude\": {\"mcp\": [{\"name\", \"status\"}], \"skills\": [...]}}}]} JSON을 출력하는 명령. 10분마다 다시 읽습니다."
 type = "string"
 default = ""
 
 [[settings]]
 key = "programs_command"
-label = "프로그램 상태 명령 (선택)"
-description = "{\"summary\": {...}, \"hosts\": [{\"host\", \"os\", \"programs\": [{\"id\", \"name\", \"kind\", \"health\", \"running\", \"pid\", \"lastExit\", \"schedule\", \"lastLog\", \"next\"}]}]} JSON을 출력하는 명령. 1분마다 다시 읽습니다."
+label = "Program status command (optional) / 프로그램 상태 명령 (선택)"
+description = "Command returning per-host program status JSON. Read again every minute.\n{\"summary\": {...}, \"hosts\": [{\"host\", \"os\", \"programs\": [{\"id\", \"name\", \"kind\", \"health\", \"running\", \"pid\", \"lastExit\", \"schedule\", \"lastLog\", \"next\"}]}]} JSON을 출력하는 명령. 1분마다 다시 읽습니다."
 type = "string"
 default = ""
 
 [[settings]]
 key = "refresh_secs"
-label = "갱신 주기(초)"
+label = "Refresh interval (seconds) / 갱신 주기(초)"
 type = "integer"
 default = 60
 min = 15
@@ -109,42 +117,42 @@ id = "fleet"
 [[ui]]
 slot = "page"
 id = "dashboard"
-title = "대시보드"
+title = "Dashboard / 대시보드"
 icon = "layout-dashboard"
 entry = "dashboard.html"
 
 [[ui]]
 slot = "page"
 id = "monitor"
-title = "서버 모니터링"
+title = "Server monitoring / 서버 모니터링"
 icon = "activity"
 entry = "page.html"
 
 [[ui]]
 slot = "page"
 id = "history"
-title = "서버 기록"
+title = "Server history / 서버 기록"
 icon = "calendar-clock"
 entry = "history.html"
 
 [[ui]]
 slot = "page"
 id = "tools"
-title = "도구 (MCP·스킬)"
+title = "Tools (MCP · skills) / 도구 (MCP·스킬)"
 icon = "wrench"
 entry = "tools.html"
 
 [[ui]]
 slot = "page"
 id = "programs"
-title = "프로그램 상태"
+title = "Program status / 프로그램 상태"
 icon = "list-checks"
 entry = "programs.html"
 
 [[ui]]
 slot = "page"
 id = "subscriptions"
-title = "구독 사용량"
+title = "Subscription usage / 구독 사용량"
 icon = "gauge"
 entry = "subscriptions.html"
 

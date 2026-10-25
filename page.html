@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>서버 모니터링</title>
+<title data-i18n="서버 모니터링">서버 모니터링</title>
 <style>
   :root { --bg: #0f1115; --fg: #e6e6e6; --muted: #9aa0a6; --line: #2a2f37; --card: #161a20;
           --ok: #3fb950; --warn: #d29922; --bad: #f85149; --accent: #58a6ff; --accent2: #d2a8ff; }
@@ -38,9 +38,24 @@
 </style>
 </head>
 <body>
-<h1>서버 모니터링</h1>
-<div class="sub" id="sub">불러오는 중…</div>
+<h1 data-i18n="서버 모니터링">서버 모니터링</h1>
+<div class="sub" id="sub" data-i18n="불러오는 중…">불러오는 중…</div>
 <div class="grid" id="grid"></div>
+<script>
+// Worker-selected language; all display data stays text, never HTML.
+let language = "ko", messages = {};
+function translate(source, values = {}) {
+  const text = language === "en" ? (messages[source] ?? source) : source;
+  return String(text).replace(/\{(p\d+)\}/g, (match, key) => Object.hasOwn(values, key) ? String(values[key]) : match);
+}
+function setLocale(entries) {
+  const settings = entries.find((e) => e.plugin_id === "dev.hyunwook.home-monitor" && e.slot === "page" && e.id === "dashboard")?.payload;
+  language = settings?.language === "en" ? "en" : "ko";
+  messages = settings?.messages || {};
+  document.documentElement.lang = language;
+  for (const node of document.querySelectorAll("[data-i18n]")) node.textContent = translate(node.dataset.i18n);
+}
+</script>
 <script>
 const PAGE_ID = "monitor";
 const NS = "http://www.w3.org/2000/svg";
@@ -68,28 +83,28 @@ function spark(series, max) {
 function caption(left, right) { const d = el("div", "label"); d.append(el("span", null, left), el("span", null, right || "")); return d; }
 function render(state) {
   const grid = document.getElementById("grid"); grid.replaceChildren();
-  if (!state) { document.getElementById("sub").textContent = "아직 측정값이 없습니다."; return; }
-  if (state.error) { document.getElementById("sub").textContent = `수집기 오류: ${state.error}`; return; }
+  if (!state) { document.getElementById("sub").textContent = translate("아직 측정값이 없습니다."); return; }
+  if (state.error) { document.getElementById("sub").textContent = translate("수집기 오류: {p0}", {p0: state.error}); return; }
   const up = state.hosts.filter((h) => h.up).length;
-  document.getElementById("sub").textContent = `서버 ${up}/${state.hosts.length} 연결 · 갱신 ${state.updated} · 그래프는 최근 24시간(15분 평균)`;
+  document.getElementById("sub").textContent = translate("서버 {p0}/{p1} 연결 · 갱신 {p2} · 그래프는 최근 24시간(15분 평균)", {p0: up, p1: state.hosts.length, p2: state.updated});
   for (const h of state.hosts) {
     const card = el("div", h.up ? "card" : "card down");
     const head = el("div", "head");
-    head.append(el("span", "name", h.name), el("span", "meta", h.up ? `${h.os || ""} · ${h.cores || "?"}코어` : "연결 끊김"));
+    head.append(el("span", "name", h.name), el("span", "meta", h.up ? translate("{p0} · {p1}코어", {p0: h.os || "", p1: h.cores || "?"}) : translate("연결 끊김")));
     card.append(head);
-    if (!h.up) { card.append(el("div", "meta bad", h.error || "측정값 없음")); grid.append(card); continue; }
+    if (!h.up) { card.append(el("div", "meta bad", h.error || translate("측정값 없음"))); grid.append(card); continue; }
     const nums = el("div", "nums");
-    for (const [label, v, extra] of [["CPU", h.cpu, h.load != null ? `부하 ${Number(h.load).toFixed(1)}` : ""], ["메모리", h.mem, h.memTotal ? `${bytes(h.memUsed)} / ${bytes(h.memTotal)}` : ""]]) {
+    for (const [label, v, extra] of [["CPU", h.cpu, h.load != null ? translate("부하 {p0}", {p0: Number(h.load).toFixed(1)}) : ""], [translate("메모리"), h.mem, h.memTotal ? `${bytes(h.memUsed)} / ${bytes(h.memTotal)}` : ""]]) {
       const d = el("div", null, label); d.append(el("b", level(v), pct(v))); if (extra) d.append(el("span", "meta", extra)); nums.append(d);
     }
-    const net = el("div", null, "네트워크"); net.append(el("b", null, `↓${bytes(h.rx, true)}`)); nums.append(net);
+    const net = el("div", null, translate("네트워크")); net.append(el("b", null, `↓${bytes(h.rx, true)}`)); nums.append(net);
     card.append(nums);
     card.append(spark([{ values: h.cpuSeries, color: "var(--accent)" }], 100), caption("CPU"));
-    card.append(spark([{ values: h.memSeries, color: "var(--accent)" }], 100), caption("메모리"));
-    card.append(el("div", "section", "네트워크"));
+    card.append(spark([{ values: h.memSeries, color: "var(--accent)" }], 100), caption(translate("메모리")));
+    card.append(el("div", "section", translate("네트워크")));
     card.append(spark([{ values: h.rxSeries || [], color: "var(--accent)" }, { values: h.txSeries || [], color: "var(--accent2)" }]),
-      caption(`받기 ↓ ${bytes(h.rx, true)}`, `보내기 ↑ ${bytes(h.tx, true)}`));
-    card.append(el("div", "section", `디스크 ${(h.disks || []).length}개`));
+      caption(translate("받기 ↓ {p0}", {p0: bytes(h.rx, true)}), translate("보내기 ↑ {p0}", {p0: bytes(h.tx, true)})));
+    card.append(el("div", "section", translate("디스크 {p0}개", {p0: (h.disks || []).length})));
     for (const d of h.disks || []) {
       const box = el("div", "disk"); const row = el("div", "row");
       row.append(el("span", "mount", d.mount), el("span", level(d.pct, 85, 95), `${pct(d.pct)} · ${bytes(d.used)} / ${bytes(d.total)}`));
@@ -128,10 +143,11 @@ function render(state) {
     try {
       const body = await call("plugins.uiState");
       const entries = Array.isArray(body) ? body : body.entries || [];
+      setLocale(entries);
       const mine = entries.find((e) => e.plugin_id === "dev.hyunwook.home-monitor" && e.slot === "page" && e.id === PAGE_ID);
       render(mine ? mine.payload : null);
     } catch (err) {
-      document.getElementById("sub").textContent = `불러오지 못했습니다: ${err.message || err.code || err}`;
+      document.getElementById("sub").textContent = translate("불러오지 못했습니다: {p0}", {p0: err.message || err.code || err});
     }
   }
   request({ method: "ready", params: { nonce: location.hash.slice(1) } }, (m) => parent.postMessage(m, "*", [port2])).then(load);

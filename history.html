@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>서버 기록</title>
+<title data-i18n="서버 기록">서버 기록</title>
 <style>
   :root { --bg: #0f1115; --fg: #e6e6e6; --muted: #9aa0a6; --line: #2a2f37; --card: #161a20;
           --ok: #3fb950; --warn: #d29922; --bad: #f85149; --accent: #58a6ff; --accent2: #d2a8ff; }
@@ -52,24 +52,39 @@
   .heat div.c { height: 18px; border-radius: 2px; }
   .two { display: grid; grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); gap: 12px; }
 </style>
-<h1>서버 기록</h1>
-<div class="sub" id="sub">불러오는 중…</div>
+<h1 data-i18n="서버 기록">서버 기록</h1>
+<div class="sub" id="sub" data-i18n="불러오는 중…">불러오는 중…</div>
 <div class="controls" id="hosts"></div>
 <div class="controls" id="ranges"></div>
 <div class="charts" id="charts"></div>
-<h2>언제 많이 쓰나 — 요일 × 시간대 평균</h2>
+<h2 data-i18n="언제 많이 쓰나 — 요일 × 시간대 평균">언제 많이 쓰나 — 요일 × 시간대 평균</h2>
 <div class="controls" id="metrics"></div>
 <div class="card"><div class="heat" id="heat"></div><div class="meta" id="heatnote" style="margin-top:6px"></div></div>
 <div class="two">
-  <div><h2>CPU가 가장 높았던 시간</h2><table><thead><tr><th>시간</th><th>CPU 최고</th><th>CPU 평균</th><th>메모리</th></tr></thead><tbody id="peaks"></tbody></table></div>
-  <div><h2>네트워크를 가장 많이 쓴 시간</h2><table><thead><tr><th>시간</th><th>받기</th><th>보내기</th></tr></thead><tbody id="net"></tbody></table></div>
+  <div><h2 data-i18n="CPU가 가장 높았던 시간">CPU가 가장 높았던 시간</h2><table><thead><tr><th data-i18n="시간">시간</th><th data-i18n="CPU 최고">CPU 최고</th><th data-i18n="CPU 평균">CPU 평균</th><th data-i18n="메모리">메모리</th></tr></thead><tbody id="peaks"></tbody></table></div>
+  <div><h2 data-i18n="네트워크를 가장 많이 쓴 시간">네트워크를 가장 많이 쓴 시간</h2><table><thead><tr><th data-i18n="시간">시간</th><th data-i18n="받기">받기</th><th data-i18n="보내기">보내기</th></tr></thead><tbody id="net"></tbody></table></div>
 </div>
-<h2 id="rowsTitle">기간별 요약</h2>
-<table><thead><tr><th>시간</th><th>CPU 평균/최고</th><th>메모리 평균/최고</th><th>디스크 최고</th><th>받기</th><th>보내기</th><th>응답</th></tr></thead><tbody id="rows"></tbody></table>
+<h2 id="rowsTitle" data-i18n="기간별 요약">기간별 요약</h2>
+<table><thead><tr><th data-i18n="시간">시간</th><th data-i18n="CPU 평균/최고">CPU 평균/최고</th><th data-i18n="메모리 평균/최고">메모리 평균/최고</th><th data-i18n="디스크 최고">디스크 최고</th><th data-i18n="받기">받기</th><th data-i18n="보내기">보내기</th><th data-i18n="응답">응답</th></tr></thead><tbody id="rows"></tbody></table>
+<script>
+// Worker-selected language; all display data stays text, never HTML.
+let language = "ko", messages = {};
+function translate(source, values = {}) {
+  const text = language === "en" ? (messages[source] ?? source) : source;
+  return String(text).replace(/\{(p\d+)\}/g, (match, key) => Object.hasOwn(values, key) ? String(values[key]) : match);
+}
+function setLocale(entries) {
+  const settings = entries.find((e) => e.plugin_id === "dev.hyunwook.home-monitor" && e.slot === "page" && e.id === "dashboard")?.payload;
+  language = settings?.language === "en" ? "en" : "ko";
+  messages = settings?.messages || {};
+  document.documentElement.lang = language;
+  for (const node of document.querySelectorAll("[data-i18n]")) node.textContent = translate(node.dataset.i18n);
+}
+</script>
 <script>
 const PAGE_ID = "history";
-const RANGES = [["24h", "24시간"], ["7d", "7일"], ["30d", "30일"], ["90d", "90일"]];
-const DOW = ["일", "월", "화", "수", "목", "금", "토"];
+function RANGES() { return [["24h", translate("24시간")], ["7d", translate("7일")], ["30d", translate("30일")], ["90d", translate("90일")]]; }
+function DOW() { return [translate("일"), translate("월"), translate("화"), translate("수"), translate("목"), translate("금"), translate("토")]; }
 const NS = "http://www.w3.org/2000/svg";
 let state = null, metric = "cpuAvg", busy = false;
 function bytes(v, rate) {
@@ -80,12 +95,12 @@ function bytes(v, rate) {
 }
 function when(ms, daily) {
   const d = new Date(ms); const p = (n) => String(n).padStart(2, "0");
-  const day = `${d.getMonth() + 1}/${d.getDate()}(${DOW[d.getDay()]})`;
+  const day = `${d.getMonth() + 1}/${d.getDate()}(${DOW()[d.getDay()]})`;
   return daily ? day : `${day} ${p(d.getHours())}:00`;
 }
 async function select(change) {
   if (busy) return; busy = true;
-  document.getElementById("sub").textContent = "불러오는 중…";
+  document.getElementById("sub").textContent = translate("불러오는 중…");
   try { await bridgeCall("action", { method: "history_select", params: { host: state?.host, range: state?.range, ...change } }); } catch (e) {}
   setTimeout(() => { busy = false; reload(); }, 1500);
 }
@@ -115,7 +130,7 @@ function chart(title, series, opts = {}) {
   const axis = el("div", "axis");
   const daily = state.range !== "24h";
   const peak = Math.max(0, ...series.flatMap((s) => pts.map((p) => p[s.key] || 0)));
-  if (pts.length) axis.append(el("span", null, when(pts[0].at, daily)), el("span", null, opts.fmt ? `기간 최고 ${opts.fmt(peak)}` : ""), el("span", null, when(pts[pts.length - 1].at, daily)));
+  if (pts.length) axis.append(el("span", null, when(pts[0].at, daily)), el("span", null, opts.fmt ? translate("기간 최고 {p0}", {p0: opts.fmt(peak)}) : ""), el("span", null, when(pts[pts.length - 1].at, daily)));
   box.append(legend, svg, axis);
   return box;
 }
@@ -127,44 +142,44 @@ function heat() {
   const values = (state.cells || []).map((c) => c[metric] || 0);
   const top = Math.max(1, ...values);
   for (let d = 0; d < 7; d++) {
-    box.append(el("div", null, DOW[d]));
+    box.append(el("div", null, DOW()[d]));
     for (let h = 0; h < 24; h++) {
       const c = cells.get(`${d}-${h}`);
       const cell = el("div", "c");
       const v = c ? c[metric] : null;
       cell.style.background = v == null ? "var(--line)" : `rgba(88,166,255,${(0.12 + 0.88 * v / top).toFixed(2)})`;
-      cell.title = c ? `${DOW[d]} ${h}시 · ${metric.startsWith("cpu") || metric === "memAvg" ? Math.round(v) + "%" : bytes(v, true)} · 측정 ${c.samples}번` : `${DOW[d]} ${h}시 · 기록 없음`;
+      cell.title = c ? translate("{p0} {p1}시 · {p2} · 측정 {p3}번", {p0: DOW()[d], p1: h, p2: metric.startsWith("cpu") || metric === "memAvg" ? Math.round(v) + "%" : bytes(v, true), p3: c.samples}) : translate("{p0} {p1}시 · 기록 없음", {p0: DOW()[d], p1: h});
       box.append(cell);
     }
   }
   const best = [...(state.cells || [])].sort((a, b) => (b[metric] || 0) - (a[metric] || 0)).slice(0, 3);
   document.getElementById("heatnote").textContent = best.length
-    ? `가장 높은 시간대: ${best.map((c) => `${DOW[c.dow]} ${c.hour}시`).join(", ")} · 색이 진할수록 높음 · 칸에 마우스를 올리면 값`
-    : "아직 기록이 없습니다.";
+    ? translate("가장 높은 시간대: {p0} · 색이 진할수록 높음 · 칸에 마우스를 올리면 값", {p0: best.map((c) => translate("{p0} {p1}시", {p0: DOW()[c.dow], p1: c.hour})).join(", ")})
+    : translate("아직 기록이 없습니다.");
 }
 function render(payload) {
   state = payload;
-  if (!state) { document.getElementById("sub").textContent = "아직 측정값이 없습니다."; return; }
+  if (!state) { document.getElementById("sub").textContent = translate("아직 측정값이 없습니다."); return; }
   const hostName = (state.hosts || []).find((h) => h.id === state.host)?.name || state.host;
   buttons("hosts", (state.hosts || []).map((h) => [h.id, h.name]), state.host, (host) => select({ host }));
-  buttons("ranges", RANGES, state.range, (range) => select({ range }));
-  buttons("metrics", [["cpuAvg", "CPU 평균"], ["cpuMax", "CPU 최고"], ["memAvg", "메모리"], ["rxRate", "받기"], ["txRate", "보내기"]], metric, (m) => { metric = m; render(state); });
-  if (state.error) { document.getElementById("sub").textContent = `불러오지 못했습니다: ${state.error}`; return; }
-  const since = state.firstSampleAt ? new Date(state.firstSampleAt).toLocaleDateString("ko-KR") : "-";
-  document.getElementById("sub").textContent = `${hostName} · ${RANGES.find((r) => r[0] === state.range)?.[1]} · 기록은 ${since}부터 쌓였습니다 · 5분마다 측정, 92일 보관 · 갱신 ${state.updated}`;
+  buttons("ranges", RANGES(), state.range, (range) => select({ range }));
+  buttons("metrics", [["cpuAvg", translate("CPU 평균")], ["cpuMax", translate("CPU 최고")], ["memAvg", translate("메모리")], ["rxRate", translate("받기")], ["txRate", translate("보내기")]], metric, (m) => { metric = m; render(state); });
+  if (state.error) { document.getElementById("sub").textContent = translate("불러오지 못했습니다: {p0}", {p0: state.error}); return; }
+  const since = state.firstSampleAt ? new Date(state.firstSampleAt).toLocaleDateString(language === "en" ? "en-US" : "ko-KR") : "-";
+  document.getElementById("sub").textContent = translate("{p0} · {p1} · 기록은 {p2}부터 쌓였습니다 · 5분마다 측정, 92일 보관 · 갱신 {p3}", {p0: hostName, p1: RANGES().find((r) => r[0] === state.range)?.[1], p2: since, p3: state.updated});
   const charts = document.getElementById("charts"); charts.replaceChildren();
   charts.append(
-    chart("CPU", [{ key: "cpuMax", label: "최고", color: "var(--accent2)" }, { key: "cpuAvg", label: "평균", color: "var(--accent)" }], { max: 100, fmt: (v) => `${Math.round(v)}%` }),
-    chart("메모리", [{ key: "memMax", label: "최고", color: "var(--accent2)" }, { key: "memAvg", label: "평균", color: "var(--accent)" }], { max: 100, fmt: (v) => `${Math.round(v)}%` }),
-    chart("네트워크", [{ key: "rxRate", label: "받기", color: "var(--accent)" }, { key: "txRate", label: "보내기", color: "var(--accent2)" }], { fmt: (v) => bytes(v, true) }),
-    chart("디스크 (가장 찬 마운트)", [{ key: "diskMax", label: "사용률", color: "var(--warn)" }], { max: 100, fmt: (v) => `${Math.round(v)}%` }));
+    chart("CPU", [{ key: "cpuMax", label: translate("최고"), color: "var(--accent2)" }, { key: "cpuAvg", label: translate("평균"), color: "var(--accent)" }], { max: 100, fmt: (v) => `${Math.round(v)}%` }),
+    chart(translate("메모리"), [{ key: "memMax", label: translate("최고"), color: "var(--accent2)" }, { key: "memAvg", label: translate("평균"), color: "var(--accent)" }], { max: 100, fmt: (v) => `${Math.round(v)}%` }),
+    chart(translate("네트워크"), [{ key: "rxRate", label: translate("받기"), color: "var(--accent)" }, { key: "txRate", label: translate("보내기"), color: "var(--accent2)" }], { fmt: (v) => bytes(v, true) }),
+    chart(translate("디스크 (가장 찬 마운트)"), [{ key: "diskMax", label: translate("사용률"), color: "var(--warn)" }], { max: 100, fmt: (v) => `${Math.round(v)}%` }));
   heat();
   const peaks = document.getElementById("peaks"); peaks.replaceChildren();
   for (const p of state.peaks || []) { const tr = el("tr"); tr.append(el("td", null, when(p.at)), el("td", level(p.cpuMax), pct(p.cpuMax)), el("td", null, pct(p.cpuAvg)), el("td", null, pct(p.memAvg))); peaks.append(tr); }
   const net = document.getElementById("net"); net.replaceChildren();
   for (const p of state.busiestNet || []) { const tr = el("tr"); tr.append(el("td", null, when(p.at)), el("td", null, bytes(p.rxBytes)), el("td", null, bytes(p.txBytes))); net.append(tr); }
   const daily = state.rowSeconds >= 86400;
-  document.getElementById("rowsTitle").textContent = daily ? "일별 요약" : "시간별 요약";
+  document.getElementById("rowsTitle").textContent = daily ? translate("일별 요약") : translate("시간별 요약");
   const rows = document.getElementById("rows"); rows.replaceChildren();
   for (const r of state.rows || []) {
     const tr = el("tr");
@@ -204,10 +219,11 @@ function render(payload) {
     try {
       const body = await call("plugins.uiState");
       const entries = Array.isArray(body) ? body : body.entries || [];
+      setLocale(entries);
       const mine = entries.find((e) => e.plugin_id === "dev.hyunwook.home-monitor" && e.slot === "page" && e.id === PAGE_ID);
       render(mine ? mine.payload : null);
     } catch (err) {
-      document.getElementById("sub").textContent = `불러오지 못했습니다: ${err.message || err.code || err}`;
+      document.getElementById("sub").textContent = translate("불러오지 못했습니다: {p0}", {p0: err.message || err.code || err});
     }
   }
   request({ method: "ready", params: { nonce: location.hash.slice(1) } }, (m) => parent.postMessage(m, "*", [port2])).then(load);

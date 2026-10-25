@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>프로그램 상태</title>
+<title data-i18n="프로그램 상태">프로그램 상태</title>
 <style>
   :root { --bg: #0f1115; --fg: #e6e6e6; --muted: #9aa0a6; --line: #2a2f37; --card: #161a20;
           --ok: #3fb950; --warn: #d29922; --bad: #f85149; --accent: #58a6ff; }
@@ -32,41 +32,56 @@
 </style>
 </head>
 <body>
-<h1>프로그램 상태</h1>
-<div class="sub" id="sub">불러오는 중…</div>
+<h1 data-i18n="프로그램 상태">프로그램 상태</h1>
+<div class="sub" id="sub" data-i18n="불러오는 중…">불러오는 중…</div>
 <div class="bar" id="bar"></div>
 <div id="hosts"></div>
 <script>
+// Worker-selected language; all display data stays text, never HTML.
+let language = "ko", messages = {};
+function translate(source, values = {}) {
+  const text = language === "en" ? (messages[source] ?? source) : source;
+  return String(text).replace(/\{(p\d+)\}/g, (match, key) => Object.hasOwn(values, key) ? String(values[key]) : match);
+}
+function setLocale(entries) {
+  const settings = entries.find((e) => e.plugin_id === "dev.hyunwook.home-monitor" && e.slot === "page" && e.id === "dashboard")?.payload;
+  language = settings?.language === "en" ? "en" : "ko";
+  messages = settings?.messages || {};
+  document.documentElement.lang = language;
+  for (const node of document.querySelectorAll("[data-i18n]")) node.textContent = translate(node.dataset.i18n);
+}
+</script>
+<script>
 const PAGE_ID = "programs";
-const HEALTH = { failed: ["실패", "bad"], down: ["멈춤", "bad"], ok: ["정상", "ok"], off: ["꺼짐", "off"] };
-const KIND = { service: "상주", scheduled: "예약", once: "한 번" };
+function HEALTH() { return { failed: [translate("실패"), "bad"], down: [translate("멈춤"), "bad"], ok: [translate("정상"), "ok"], off: [translate("꺼짐"), "off"] }; }
+function KIND() { return { service: translate("상주"), scheduled: translate("예약"), once: translate("한 번") }; }
 let onlyProblems = false, lastState = null;
 function ago(iso) {
   if (!iso) return "–";
   const s = (Date.now() - Date.parse(iso)) / 1000, a = Math.abs(s);
-  const t = a < 90 ? `${Math.round(a)}초` : a < 5400 ? `${Math.round(a / 60)}분` : a < 172800 ? `${Math.round(a / 3600)}시간` : `${Math.round(a / 86400)}일`;
-  return s >= 0 ? `${t} 전` : `${t} 후`;
+  const t = a < 90 ? translate("{p0}초", {p0: Math.round(a)}) : a < 5400 ? translate("{p0}분", {p0: Math.round(a / 60)}) : a < 172800 ? translate("{p0}시간", {p0: Math.round(a / 3600)}) : translate("{p0}일", {p0: Math.round(a / 86400)});
+  return s >= 0 ? translate("{p0} 전", {p0: t}) : translate("{p0} 후", {p0: t});
 }
 function kst(iso) {
   if (!iso) return "";
-  return new Date(iso).toLocaleString("ko-KR", { timeZone: "Asia/Seoul", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  return new Date(iso).toLocaleString(language === "en" ? "en-US" : "ko-KR", { timeZone: "Asia/Seoul", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 function state(p) {
-  if (p.health === "off") return "꺼짐";
-  if (p.running) return "실행 중";
-  if (p.kind === "service") return p.health === "ok" ? "대기" : "멈춤";
-  return "대기";
+  if (p.health === "off") return translate("꺼짐");
+  if (p.running) return translate("실행 중");
+  if (p.kind === "service") return p.health === "ok" ? translate("대기") : translate("멈춤");
+  return translate("대기");
 }
 function render(data) {
   lastState = data;
   const box = document.getElementById("hosts"); box.replaceChildren();
   const bar = document.getElementById("bar"); bar.replaceChildren();
-  if (!data || data.error) { document.getElementById("sub").textContent = data?.error || "아직 목록이 없습니다 (programs_command 설정)."; return; }
+  if (!data || data.error) { document.getElementById("sub").textContent = data?.error || translate("아직 목록이 없습니다 (programs_command 설정)."); return; }
   const s = data.summary || {};
   const problems = (s.failed || 0) + (s.down || 0);
   document.getElementById("sub").textContent =
-    `${kst(data.observed)} 기준 · 1분마다 갱신 · 문제 ${problems} · 정상 ${s.ok || 0} · 꺼짐 ${s.off || 0}`;
-  const all = el("button", onlyProblems ? "chip" : "chip on", "전체"), bad = el("button", onlyProblems ? "chip on" : "chip", `문제만 (${problems})`);
+    translate("{p0} 기준 · 1분마다 갱신 · 문제 {p1} · 정상 {p2} · 꺼짐 {p3}", {p0: kst(data.observed), p1: problems, p2: s.ok || 0, p3: s.off || 0});
+  const all = el("button", onlyProblems ? "chip" : "chip on", translate("전체")), bad = el("button", onlyProblems ? "chip on" : "chip", translate("문제만 ({p0})", {p0: problems}));
   all.onclick = () => { onlyProblems = false; render(lastState); }; bad.onclick = () => { onlyProblems = true; render(lastState); };
   bar.append(all, bad);
   for (const h of data.hosts || []) {
@@ -74,20 +89,20 @@ function render(data) {
     if (onlyProblems) progs = progs.filter((p) => p.health === "failed" || p.health === "down");
     if (!progs.length && (onlyProblems || h.skipped)) continue;
     const head = el("h2", null, h.host);
-    head.append(el("span", "meta", h.error ? "" : h.skipped ? "필요할 때만 켜는 서버" : `${(h.programs || []).length}개 · ${h.os || ""}`));
+    head.append(el("span", "meta", h.error ? "" : h.skipped ? translate("필요할 때만 켜는 서버") : translate("{p0}개 · {p1}", {p0: (h.programs || []).length, p1: h.os || ""})));
     box.append(head);
-    if (h.error) { box.append(el("div", "err", `연결 실패: ${h.error}`)); continue; }
-    if (!progs.length) { box.append(el("div", "muted", "등록된 프로그램이 없습니다.")); continue; }
+    if (h.error) { box.append(el("div", "err", translate("연결 실패: {p0}", {p0: h.error}))); continue; }
+    if (!progs.length) { box.append(el("div", "muted", translate("등록된 프로그램이 없습니다."))); continue; }
     const t = el("table"), thead = el("thead"), tr = el("tr");
-    for (const c of ["상태", "프로그램", "종류", "일정", "마지막 기록", "다음 실행", "PID", "종료 코드", "실행 횟수"]) tr.append(el("th", null, c));
+    for (const c of [translate("상태"), translate("프로그램"), translate("종류"), translate("일정"), translate("마지막 기록"), translate("다음 실행"), "PID", translate("종료 코드"), translate("실행 횟수")]) tr.append(el("th", null, c));
     thead.append(tr); t.append(thead);
     const tb = el("tbody");
     for (const p of progs) {
-      const [label, tone] = HEALTH[p.health] || [p.health, ""];
+      const [label, tone] = HEALTH()[p.health] || [p.health, ""];
       const row = el("tr", p.health === "failed" || p.health === "down" ? "problem" : "");
       const st = el("td"); st.append(el("span", `pill ${tone}`, `${label} · ${state(p)}`)); row.append(st);
-      const nm = el("td", null, p.name || p.id); nm.append(el("span", "id", p.autoName ? `${p.id} · 자동 이름` : p.id)); nm.title = [p.command, p.log ? `로그: ${p.log}` : ""].filter(Boolean).join("\n");
-      row.append(nm, el("td", null, KIND[p.kind] || p.kind), el("td", null, p.schedule || ""));
+      const nm = el("td", null, p.name || p.id); nm.append(el("span", "id", p.autoName ? translate("{p0} · 자동 이름", {p0: p.id}) : p.id)); nm.title = [p.command, p.log ? translate("로그: {p0}", {p0: p.log}) : ""].filter(Boolean).join("\n");
+      row.append(nm, el("td", null, KIND()[p.kind] || p.kind), el("td", null, p.schedule || ""));
       const last = el("td", "num", ago(p.lastLog)); last.title = kst(p.lastLog); row.append(last);
       const nxt = el("td", "num", p.next ? ago(p.next) : "–"); nxt.title = kst(p.next); row.append(nxt);
       row.append(el("td", "num", p.pid ?? "–"), el("td", "num " + (p.lastExit ? "bad" : ""), p.lastExit ?? "–"), el("td", "num", p.runs ?? "–"));
@@ -123,10 +138,11 @@ function render(data) {
     try {
       const body = await call("plugins.uiState");
       const entries = Array.isArray(body) ? body : body.entries || [];
+      setLocale(entries);
       const mine = entries.find((e) => e.plugin_id === "dev.hyunwook.home-monitor" && e.slot === "page" && e.id === PAGE_ID);
       render(mine ? mine.payload : null);
     } catch (err) {
-      document.getElementById("sub").textContent = `불러오지 못했습니다: ${err.message || err.code || err}`;
+      document.getElementById("sub").textContent = translate("불러오지 못했습니다: {p0}", {p0: err.message || err.code || err});
     }
   }
   request({ method: "ready", params: { nonce: location.hash.slice(1) } }, (m) => parent.postMessage(m, "*", [port2])).then(load);

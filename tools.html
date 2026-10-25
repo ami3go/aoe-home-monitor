@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>도구 (MCP·스킬)</title>
+<title data-i18n="도구 (MCP·스킬)">도구 (MCP·스킬)</title>
 <style>
   :root { --bg: #0f1115; --fg: #e6e6e6; --muted: #9aa0a6; --line: #2a2f37; --card: #161a20;
           --ok: #3fb950; --warn: #d29922; --bad: #f85149; --accent: #58a6ff; --accent2: #d2a8ff; }
@@ -38,12 +38,27 @@
 </style>
 </head>
 <body>
-<h1>도구 (MCP·스킬)</h1>
-<div class="sub" id="sub">불러오는 중…</div>
-<h2>MCP 서버</h2>
+<h1 data-i18n="도구 (MCP·스킬)">도구 (MCP·스킬)</h1>
+<div class="sub" id="sub" data-i18n="불러오는 중…">불러오는 중…</div>
+<h2 data-i18n="MCP 서버">MCP 서버</h2>
 <table><thead id="mhead"></thead><tbody id="mrows"></tbody></table>
-<h2>스킬</h2>
+<h2 data-i18n="스킬">스킬</h2>
 <table><thead id="shead"></thead><tbody id="srows"></tbody></table>
+<script>
+// Worker-selected language; all display data stays text, never HTML.
+let language = "ko", messages = {};
+function translate(source, values = {}) {
+  const text = language === "en" ? (messages[source] ?? source) : source;
+  return String(text).replace(/\{(p\d+)\}/g, (match, key) => Object.hasOwn(values, key) ? String(values[key]) : match);
+}
+function setLocale(entries) {
+  const settings = entries.find((e) => e.plugin_id === "dev.hyunwook.home-monitor" && e.slot === "page" && e.id === "dashboard")?.payload;
+  language = settings?.language === "en" ? "en" : "ko";
+  messages = settings?.messages || {};
+  document.documentElement.lang = language;
+  for (const node of document.querySelectorAll("[data-i18n]")) node.textContent = translate(node.dataset.i18n);
+}
+</script>
 <script>
 const PAGE_ID = "tools";
 const CLI_NAMES = { claude: "Claude", codex: "Codex", grok: "Grok", agy: "Antigravity" };
@@ -51,11 +66,11 @@ function render(state) {
   const mh = document.getElementById("mhead"), mr = document.getElementById("mrows");
   const sh = document.getElementById("shead"), sr = document.getElementById("srows");
   [mh, mr, sh, sr].forEach((x) => x.replaceChildren());
-  if (!state || state.error) { document.getElementById("sub").textContent = state?.error || "아직 목록이 없습니다."; return; }
+  if (!state || state.error) { document.getElementById("sub").textContent = state?.error || translate("아직 목록이 없습니다."); return; }
   const hosts = (state.hosts || []).filter((h) => Object.keys(h.clis || {}).length);
   const cols = [];
   for (const h of hosts) for (const cli of Object.keys(h.clis)) cols.push([h.host, cli]);
-  document.getElementById("sub").textContent = `서버 ${hosts.length}대 · CLI ${cols.length}개 · ${state.observed || ""} 기준 · 10분마다 갱신`;
+  document.getElementById("sub").textContent = translate("서버 {p0}대 · CLI {p1}개 · {p2} 기준 · 10분마다 갱신", {p0: hosts.length, p1: cols.length, p2: state.observed || ""});
   const header = (tr) => { tr.append(el("th", null, "")); for (const [h, c] of cols) tr.append(el("th", null, `${h} · ${CLI_NAMES[c] || c}`)); };
   const t1 = el("tr"); header(t1); mh.append(t1);
   const t2 = el("tr"); header(t2); sh.append(t2);
@@ -104,10 +119,11 @@ function render(state) {
     try {
       const body = await call("plugins.uiState");
       const entries = Array.isArray(body) ? body : body.entries || [];
+      setLocale(entries);
       const mine = entries.find((e) => e.plugin_id === "dev.hyunwook.home-monitor" && e.slot === "page" && e.id === PAGE_ID);
       render(mine ? mine.payload : null);
     } catch (err) {
-      document.getElementById("sub").textContent = `불러오지 못했습니다: ${err.message || err.code || err}`;
+      document.getElementById("sub").textContent = translate("불러오지 못했습니다: {p0}", {p0: err.message || err.code || err});
     }
   }
   request({ method: "ready", params: { nonce: location.hash.slice(1) } }, (m) => parent.postMessage(m, "*", [port2])).then(load);

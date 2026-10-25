@@ -2,7 +2,29 @@
 
 [Agent of Empires](https://github.com/agent-of-empires/agent-of-empires)(AoE) 대시보드에서 집 서버 여러 대의 상태를 한 번에 보려고 만든 플러그인입니다. 에이전트 세션은 AoE와 [aoe-fleet](https://github.com/hyunwook711/aoe-fleet)으로 보고, 서버의 CPU·메모리·디스크와 구독 사용량은 이 플러그인으로 봅니다.
 
-An AoE plugin that shows server health (CPU, memory, disk, 24 h history) and subscription usage for a small home fleet: a dashboard home pane plus a full page. UI text is Korean.
+An AoE plugin that shows server health (CPU, memory, disk, 24 h history) and subscription usage for a small home fleet: a dashboard home pane plus a full page. UI text supports Korean and English (Korean by default).
+
+
+## Language / 언어
+
+In **Settings → Plugins → Home Monitor**, set **Language / 언어** to `en`
+for English or `ko` for Korean. Korean remains the default for existing
+installations. The worker applies changes on its next refresh; use the plugin's
+**Refresh now** command to refresh immediately.
+
+Settings labels, descriptions, and navigation titles are bilingual because AoE
+renders this metadata directly from the static manifest. The language setting
+controls plugin-generated panels, warnings, status messages, and tooltips, as well as all six dashboard pages.
+External server names, account names, command output, and provider data are kept
+as supplied. No external translation service is used.
+
+**Settings → Plugins → Home Monitor → Language / 언어**에서 `en`(English)
+또는 `ko`(한국어)를 선택할 수 있습니다. 기존 설치의 기본값은 한국어입니다.
+
+For the embedded pages, the worker shares the English message catalog through
+the existing `plugins.uiState` bridge. Pages pick up a language change on their
+next poll (15–30 seconds) without a reload. The existing timestamp time zones
+are preserved.
 
 ## 화면
 
@@ -71,3 +93,14 @@ python3 -m unittest discover -s tests -v
 ## License
 
 MIT
+
+## Localization checks
+
+```sh
+python3 -m unittest discover -s tests -v
+node --test tests/test_pages.cjs
+```
+
+The tests cover English output, Korean compatibility, live language switches,
+format placeholders, and catalog coverage. English translations live in
+`locales/en.json`; source strings provide the Korean and unknown-key fallback.
